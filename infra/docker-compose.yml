@@ -1,0 +1,38 @@
+version: "3.9"
+name: fullstack-pg
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: pg17
+    environment:
+      POSTGRES_PASSWORD: postgres
+    ports: ["5432:5432"]
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL","pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  api:
+    build: { context: ../go-api }
+    env_file: ../go-api/.env
+    ports: ["8080:8080"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: unless-stopped
+
+  web:
+    build: { context: ../webapp }
+    env_file: ../webapp/.env
+    ports: ["3000:80"]
+    depends_on:
+      api: { condition: service_started }
+    restart: unless-stopped
+
+volumes:
+  pg-data:
