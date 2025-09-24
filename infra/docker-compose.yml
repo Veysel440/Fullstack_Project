@@ -2,44 +2,54 @@ services:
   postgres:
     image: postgres:17-alpine
     environment:
+      POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    command: >
+      postgres
+      -c log_min_duration_statement=200ms
+      -c log_statement=none
+      -c log_connections=on
+      -c log_disconnections=on
+      -c shared_buffers=128MB
     ports: ["5432:5432"]
     volumes:
       - pg-data:/var/lib/postgresql/data
-      - ./postgres/init:/docker-entrypoint-initdb.d
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL","pg_isready -U postgres"]
+      test: ["CMD-SHELL","pg_isready -U postgres -d postgres"]
       interval: 10s
       timeout: 5s
       retries: 30
     restart: unless-stopped
 
   api:
-    build: { context: ../go-api }
+    build: { context: ../go-api, dockerfile: Dockerfile }
     env_file: ../go-api/.env
+    depends_on: { postgres: { condition: service_healthy } }
     ports: ["8080:8080"]
-    depends_on:
-      postgres: { condition: service_healthy }
     read_only: true
     tmpfs: ["/tmp:rw,noexec,nosuid,size=64m"]
     security_opt: ["no-new-privileges:true"]
     cap_drop: ["ALL"]
-    mem_limit: "256m"
-    cpus: "0.50"
+    deploy: { resources: { limits: { memory: 256M, cpus: "0.50" } } }
     restart: unless-stopped
 
   web:
-    build: { context: ../webapp }
-    env_file: ../webapp/.env
+    build:
+      context: ../webapp
+      dockerfile: Dockerfile
+      args: { VITE_API_URL: /api }
+    depends_on: { api: { condition: service_started } }
     ports: ["3000:80"]
-    depends_on:
-      api: { condition: service_started }
     read_only: true
-    tmpfs: ["/var/cache/nginx:rw,noexec,nosuid,size=64m","/var/run:rw,noexec,nosuid,size=16m","/tmp:rw,noexec,nosuid,size=32m"]
+    tmpfs:
+      - /var/cache/nginx:rw,noexec,nosuid,size=64m
+      - /var/run:rw,noexec,nosuid,size=16m
+      - /tmp:rw,noexec,nosuid,size=32m
     security_opt: ["no-new-privileges:true"]
     cap_drop: ["ALL"]
-    mem_limit: "128m"
-    cpus: "0.50"
+    deploy: { resources: { limits: { memory: 128M, cpus: "0.50" } } }
     restart: unless-stopped
 
 volumes:

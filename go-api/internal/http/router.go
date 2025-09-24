@@ -22,6 +22,9 @@ func Router(h *Handlers, corsMW func(stdhttp.Handler) stdhttp.Handler, logger *s
 
 	r.Mount("/debug", middleware.Profiler())
 
+	r.Get("/openapi.yaml", OpenAPISpec)
+	r.Get("/docs", Docs)
+
 	r.Use(Metrics())
 	r.Method(stdhttp.MethodGet, "/metrics", MetricsHandler())
 

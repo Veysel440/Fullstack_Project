@@ -24,7 +24,11 @@ func (h *Handlers) Health(w stdhttp.ResponseWriter, _ *stdhttp.Request) {
 }
 
 func (h *Handlers) ListItems(w stdhttp.ResponseWriter, r *stdhttp.Request) {
-	items, err := h.S.List(r.Context())
+	q := r.URL.Query()
+	page, _ := strconv.Atoi(q.Get("page"))
+	size, _ := strconv.Atoi(q.Get("size"))
+
+	items, err := h.S.List(r.Context(), page, size)
 	if err != nil {
 		writeError(w, r, 500, "list_failed", err.Error())
 		return

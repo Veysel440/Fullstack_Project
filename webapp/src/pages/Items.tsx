@@ -12,14 +12,20 @@ export default function Items() {
     const [editId, setEditId] = useState<number | null>(null);
     const [editName, setEditName] = useState("");
     const [editPrice, setEditPrice] = useState<number>(0);
+    const [page, setPage] = useState(1);
+    const [size] = useState(10);
 
     function toast(m: string) { alert(m); }
 
     async function load() {
-        try { setItems(await json<Item[]>("/items/")); }
-        catch (e: any) { toast(e?.error ?? "Load failed"); }
+        try {
+            const data = await json<Item[]>(`/items/?page=${page}&size=${size}`);
+            setItems(data);
+        } catch (e: any) {
+            toast(e?.error ?? "Load failed");
+        }
     }
-    useEffect(() => { void load(); }, []);
+    useEffect(() => { void load(); }, [page]);
 
     async function add(e: React.FormEvent) {
         e.preventDefault();
@@ -29,7 +35,8 @@ export default function Items() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ name, price: Number(price) })
             });
-            setName(""); setPrice(0); await load();
+            setName(""); setPrice(0);
+            await load();
         } catch (e: any) { toast(e?.error ?? "Create failed"); }
     }
 
@@ -99,6 +106,12 @@ export default function Items() {
                     </li>
                 ))}
             </ul>
+
+            <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
+                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>Prev</button>
+                <span>Page {page}</span>
+                <button onClick={() => setPage(p => p + 1)}>Next</button>
+            </div>
         </div>
     );
 }
