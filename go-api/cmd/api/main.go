@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/getsentry/sentry-go"
+	"github.com/go-playground/validator/v10"
 
 	"fullstack-oracle/go-api/internal/config"
 	"fullstack-oracle/go-api/internal/db"
@@ -34,18 +35,31 @@ func main() {
 		logger.Error("db_open", "err", err)
 		os.Exit(1)
 	}
-
 	if err := migrate.Up(context.Background(), d); err != nil {
 		logger.Error("migrate_up", "err", err)
 		os.Exit(1)
 	}
 
-	rp := repo.NewItemRepo(d)
-	sv := service.NewItemService(rp)
-	h := &hh.Handlers{S: sv}
+	// domain servisleri
+	itemRepo := repo.NewItemRepo(d)
+	itemSvc := service.NewItemService(itemRepo)
+	h := &hh.Handlers{S: itemSvc}
+
+	// auth kablolama
+	userRepo := repo.NewUserRepo(d)
+	authSvc := service.NewAuthService(cfg, userRepo)
+	ah := &hh.AuthHandlers{Cfg: cfg, S: authSvc, Val: validator.New()}
+
+	jwtv := &hh.JWTVerifier{
+		AccessSecret:  []byte(cfg.JWTAccessSecret),
+		RefreshSecret: []byte(cfg.JWTRefreshSecret),
+		Logger:        logger,
+	}
 
 	rl := hh.NewRateLimiter(cfg.RateLimitRPS, cfg.RateLimitBurst)
-	app := hh.Router(h, hh.CORS(cfg.CORSOrigins), logger, rl)
+
+	// Router yeni imza:
+	app := hh.Router(h, hh.CORS(cfg.CORSOrigins), logger, rl, jwtv, ah)
 
 	addr := ":" + cfg.Port
 	logger.Info("api_listen", "addr", addr)

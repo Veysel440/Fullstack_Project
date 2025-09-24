@@ -1,4 +1,45 @@
-name: ci.yml
+name: ci
 on:
+  push:
+    branches: [ main ]
+  pull_request:
 
 jobs:
+  go:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: go-api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.23' }
+      - run: go mod tidy
+      - run: go vet ./...
+      - run: go test ./...
+      - run: go build ./cmd/api
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: go
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v5
+        with:
+          context: ./go-api
+          file: ./go-api/Dockerfile
+          push: false
+          tags: local/fullstack-pg-api:ci
+
+  trivy:
+    runs-on: ubuntu-latest
+    needs: docker
+    steps:
+      - uses: aquasecurity/trivy-action@0.20.0
+        with:
+          image-ref: local/fullstack-pg-api:ci
+          format: table
+          exit-code: 0
+          vuln-type: 'os,library'
+          ignore-unfixed: true

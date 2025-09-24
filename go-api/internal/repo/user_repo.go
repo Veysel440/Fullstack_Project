@@ -8,8 +8,6 @@ import (
 	"fullstack-oracle/go-api/internal/domain"
 )
 
-var ErrNotFound = errors.New("not_found")
-
 type UserRepo struct{ db *sql.DB }
 
 func NewUserRepo(db *sql.DB) *UserRepo { return &UserRepo{db: db} }
