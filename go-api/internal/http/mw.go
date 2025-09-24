@@ -1,44 +1,60 @@
 package http
 
 import (
-	"net/http"
-	"strings"
+	"log/slog"
+	stdhttp "net/http"
 	"time"
+
+	"github.com/google/uuid"
 )
 
-func cors(originsCSV string) func(http.Handler) http.Handler {
-	allowed := map[string]struct{}{}
-	for _, o := range strings.Split(originsCSV, ",") {
-		o = strings.TrimSpace(o)
-		if o != "" {
-			allowed[o] = struct{}{}
-		}
-	}
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			origin := r.Header.Get("Origin")
-			if origin == "" {
-				next.ServeHTTP(w, r)
-				return
+func RequestID() func(stdhttp.Handler) stdhttp.Handler {
+	return func(next stdhttp.Handler) stdhttp.Handler {
+		return stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+			id := r.Header.Get("X-Request-ID")
+			if id == "" {
+				id = uuid.NewString()
 			}
-			if _, ok := allowed[origin]; len(allowed) == 0 || ok {
-				w.Header().Set("Access-Control-Allow-Origin", origin)
-				w.Header().Set("Vary", "Origin")
-				w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-				w.Header().Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
-				if r.Method == http.MethodOptions {
-					w.WriteHeader(http.StatusNoContent)
-					return
-				}
-			}
+			r = r.WithContext(withRequestID(r.Context(), id))
+			w.Header().Set("X-Request-ID", id)
 			next.ServeHTTP(w, r)
 		})
 	}
 }
 
-func reqlog(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = time.Now()
-		next.ServeHTTP(w, r)
-	})
+type rw struct {
+	stdhttp.ResponseWriter
+	status int
+	size   int
+}
+
+func (w *rw) WriteHeader(code int) { w.status = code; w.ResponseWriter.WriteHeader(code) }
+func (w *rw) Write(b []byte) (int, error) {
+	if w.status == 0 {
+		w.status = stdhttp.StatusOK
+	}
+	n, err := w.ResponseWriter.Write(b)
+	w.size += n
+	return n, err
+}
+
+func Logger(l *slog.Logger) func(stdhttp.Handler) stdhttp.Handler {
+	return func(next stdhttp.Handler) stdhttp.Handler {
+		return stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+			start := time.Now()
+			ww := &rw{ResponseWriter: w}
+			next.ServeHTTP(ww, r)
+			l.Info("http",
+				"ts", time.Now().UTC().Format(time.RFC3339Nano),
+				"rid", RequestIDFrom(r.Context()),
+				"method", r.Method,
+				"path", r.URL.Path,
+				"status", ww.status,
+				"size", ww.size,
+				"dur_ms", time.Since(start).Milliseconds(),
+				"ip", r.RemoteAddr,
+				"ua", r.UserAgent(),
+			)
+		})
+	}
 }

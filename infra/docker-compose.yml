@@ -1,10 +1,6 @@
-version: "3.9"
-name: fullstack-pg
-
 services:
   postgres:
     image: postgres:17-alpine
-    container_name: pg17
     environment:
       POSTGRES_PASSWORD: postgres
     ports: ["5432:5432"]
@@ -24,6 +20,12 @@ services:
     ports: ["8080:8080"]
     depends_on:
       postgres: { condition: service_healthy }
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=64m"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    mem_limit: "256m"
+    cpus: "0.50"
     restart: unless-stopped
 
   web:
@@ -32,6 +34,12 @@ services:
     ports: ["3000:80"]
     depends_on:
       api: { condition: service_started }
+    read_only: true
+    tmpfs: ["/var/cache/nginx:rw,noexec,nosuid,size=64m","/var/run:rw,noexec,nosuid,size=16m","/tmp:rw,noexec,nosuid,size=32m"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    mem_limit: "128m"
+    cpus: "0.50"
     restart: unless-stopped
 
 volumes:
