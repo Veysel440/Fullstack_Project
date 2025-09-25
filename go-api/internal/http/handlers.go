@@ -32,19 +32,8 @@ func weakTag(ts time.Time, n int) string {
 }
 
 func (h *Handlers) ListItems(w stdhttp.ResponseWriter, r *stdhttp.Request) {
-	q := r.URL.Query()
-	page, _ := strconv.Atoi(q.Get("page"))
-	size, _ := strconv.Atoi(q.Get("size"))
-	
-	lm, cnt, _ := h.S.ListStamp(r.Context())
-	tag := weakTag(lm, cnt)
-	if inm := r.Header.Get("If-None-Match"); inm != "" && inm == tag {
-		w.WriteHeader(stdhttp.StatusNotModified)
-		return
-	}
-	w.Header().Set("ETag", tag)
-	w.Header().Set("Cache-Control", "private, max-age=30")
-
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	size, _ := strconv.Atoi(r.URL.Query().Get("size"))
 	items, err := h.S.List(r.Context(), page, size)
 	if err != nil {
 		writeError(w, r, 500, "list_failed", err.Error())

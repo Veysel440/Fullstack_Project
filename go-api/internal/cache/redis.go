@@ -2,68 +2,82 @@ package cache
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
 
-func New() *redis.Client {
+type Store struct{ R *redis.Client }
+
+func New() *Store {
 	addr := os.Getenv("REDIS_ADDR")
 	if addr == "" {
 		return nil
 	}
-	return redis.NewClient(&redis.Options{
+	r := redis.NewClient(&redis.Options{
 		Addr:     addr,
 		Password: os.Getenv("REDIS_PASSWORD"),
 	})
+	return &Store{R: r}
 }
 
-func Ping(ctx context.Context, rdb *redis.Client) error {
-	if rdb == nil {
+func (s *Store) Close() {
+	if s != nil && s.R != nil {
+		_ = s.R.Close()
+	}
+}
+
+func (s *Store) GetJSON(ctx context.Context, key string, dst any) (bool, error) {
+	if s == nil {
+		return false, nil
+	}
+	b, err := s.R.Get(ctx, key).Bytes()
+	if err == redis.Nil {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, json.Unmarshal(b, dst)
+}
+
+func (s *Store) SetJSON(ctx context.Context, key string, val any, ttl time.Duration) error {
+	if s == nil {
 		return nil
 	}
-	_, err := rdb.Ping(ctx).Result()
-	return err
-}
-
-var luaTokenBucket = `
-local key     = KEYS[1]
-local now     = tonumber(ARGV[1])
-local rate    = tonumber(ARGV[2])
-local burst   = tonumber(ARGV[3])
-local period  = tonumber(ARGV[4]) -- ms
-
-local data = redis.call("HMGET", key, "tokens", "ts")
-local tokens = tonumber(data[1]) or burst
-local ts     = tonumber(data[2]) or now
-
-local delta = (now - ts) / period * rate
-tokens = math.min(burst, tokens + delta)
-if tokens < 1 then
-  redis.call("HMSET", key, "tokens", tokens, "ts", now)
-  redis.call("PEXPIRE", key, 60000)
-  return 0
-else
-  tokens = tokens - 1
-  redis.call("HMSET", key, "tokens", tokens, "ts", now)
-  redis.call("PEXPIRE", key, 60000)
-  return 1
-end
-`
-
-type Limiter struct {
-	RDB   *redis.Client
-	Rate  float64
-	Burst float64
-}
-
-func (l *Limiter) Allow(ctx context.Context, key string) bool {
-	if l.RDB == nil {
-		return true
+	b, err := json.Marshal(val)
+	if err != nil {
+		return err
 	}
-	now := float64(time.Now().UnixMilli())
-	n, err := l.RDB.Eval(ctx, luaTokenBucket, []string{"rl:" + key},
-		now, l.Rate, l.Burst, float64(1000)).Int()
-	return err == nil && n == 1
+	return s.R.Set(ctx, key, b, ttl).Err()
+}
+
+func (s *Store) DelPattern(ctx context.Context, pat string) {
+	if s == nil {
+		return
+	}
+	iter := s.R.Scan(ctx, 0, pat, 100).Iterator()
+	for iter.Next(ctx) {
+		_ = s.R.Del(ctx, iter.Val()).Err()
+	}
+	_ = iter.Err()
+}
+
+func (s *Store) RevokeJTI(ctx context.Context, jti string, ttl time.Duration) error {
+	if s == nil {
+		return nil
+	}
+	return s.R.Set(ctx, "rev:"+jti, "1", ttl).Err()
+}
+func (s *Store) IsRevoked(ctx context.Context, jti string) (bool, error) {
+	if s == nil {
+		return false, nil
+	}
+	_, err := s.R.Get(ctx, "rev:"+jti).Result()
+	if err == redis.Nil {
+		return false, nil
+	}
+	return err == nil, err
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/getsentry/sentry-go"
 	"github.com/go-playground/validator/v10"
 
+	"fullstack-oracle/go-api/internal/cache"
 	"fullstack-oracle/go-api/internal/config"
 	"fullstack-oracle/go-api/internal/db"
 	"fullstack-oracle/go-api/internal/events"
@@ -23,12 +24,12 @@ import (
 func main() {
 	cfg := config.FromEnv()
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	
+
 	if cfg.SentryDSN != "" {
 		_ = sentry.Init(sentry.ClientOptions{Dsn: cfg.SentryDSN, Environment: cfg.SentryEnv})
 		defer sentry.Flush(2 * time.Second)
 	}
-
+	
 	d, err := db.Open(cfg)
 	if err != nil {
 		logger.Error("db_open", "err", err)
@@ -39,11 +40,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	itemRepo := repo.NewItemRepo(d)
+	c := cache.New()
+	if c != nil {
+		defer c.Close()
+	}
 	ev := events.NewWriter()
 	if ev != nil {
 		defer ev.Close()
 	}
+
+	itemRepo := repo.NewItemRepo(d)
 	itemSvc := service.NewItemService(itemRepo, ev)
 	h := &hh.Handlers{S: itemSvc}
 
@@ -53,7 +59,7 @@ func main() {
 	var ah *hh.AuthHandlers
 	if cfg.JWTAccessSecret != "" && cfg.JWTRefreshSecret != "" {
 		userRepo := repo.NewUserRepo(d)
-		authSvc := service.NewAuthService(cfg, userRepo)
+		authSvc := service.NewAuthService(cfg, userRepo, c)
 		ah = &hh.AuthHandlers{Cfg: cfg, S: authSvc, Val: validator.New()}
 		jwtv = &hh.JWTVerifier{
 			AccessSecret:  []byte(cfg.JWTAccessSecret),

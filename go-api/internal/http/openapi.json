@@ -1,0 +1,14 @@
+{
+  "openapi":"3.0.3",
+  "info":{"title":"Fullstack API","version":"1.0.0"},
+  "paths":{
+    "/health":{"get":{"responses":{"200":{"description":"ok"}}}},
+    "/auth/login":{"post":{"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"Email":{"type":"string"},"Password":{"type":"string"}},"required":["Email","Password"]}}}},"responses":{"200":{"description":"tokens"}}}},
+    "/auth/refresh":{"post":{"responses":{"200":{"description":"tokens"}}}}},
+  "/items":{"get":{"parameters":[
+    {"in":"query","name":"page","schema":{"type":"integer"}},
+    {"in":"query","name":"size","schema":{"type":"integer"}},
+    {"in":"query","name":"sort","schema":{"type":"string","example":"created_at,desc"}}
+  ],"responses":{"200":{"description":"list"}}}}
+}
+

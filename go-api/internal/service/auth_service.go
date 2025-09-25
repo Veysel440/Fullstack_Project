@@ -1,62 +1,112 @@
 package service
 
 import (
+	"context"
 	"time"
-
-	"fullstack-oracle/go-api/internal/config"
-	"fullstack-oracle/go-api/internal/domain"
-	"fullstack-oracle/go-api/internal/repo"
 
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
+
+	"fullstack-oracle/go-api/internal/cache"
+	"fullstack-oracle/go-api/internal/config"
+	"fullstack-oracle/go-api/internal/repo"
 )
 
 type AuthService struct {
 	cfg config.Config
-	ur  *repo.UserRepo
+	r   *repo.UserRepo
+	c   *cache.Store
 }
 
-func NewAuthService(cfg config.Config, ur *repo.UserRepo) *AuthService {
-	return &AuthService{cfg: cfg, ur: ur}
+func NewAuthService(cfg config.Config, r *repo.UserRepo, c *cache.Store) *AuthService {
+	return &AuthService{cfg: cfg, r: r, c: c}
 }
 
-type TokenPair struct {
+type Tokens struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
 }
 
-func (s *AuthService) Login(email, password string) (*domain.User, TokenPair, error) {
-	u, hash, err := s.ur.FindByEmail(nil, email)
+func (s *AuthService) Login(ctx context.Context, email, pass string) (Tokens, error) {
+	u, hash, err := s.r.FindByEmail(ctx, email)
 	if err != nil {
-		return nil, TokenPair{}, err
+		return Tokens{}, err
 	}
-	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) != nil {
-		return nil, TokenPair{}, repo.ErrNotFound
+	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(pass)) != nil {
+		return Tokens{}, repo.ErrNotFound
 	}
-	return u, s.tokens(u), nil
+	return s.issue(u.ID, u.Role)
 }
 
-func (s *AuthService) Refresh(userID int64, role string) TokenPair {
-	u := &domain.User{ID: userID, Role: role}
-	return s.tokens(u)
+func (s *AuthService) Refresh(ctx context.Context, oldRefresh string) (Tokens, error) {
+	tok, err := jwt.ParseWithClaims(oldRefresh, jwt.MapClaims{}, func(t *jwt.Token) (any, error) {
+		return []byte(s.cfg.JWTRefreshSecret), nil
+	})
+	if err != nil || !tok.Valid {
+		return Tokens{}, repo.ErrNotFound
+	}
+	claims := tok.Claims.(jwt.MapClaims)
+	jti, _ := claims["jti"].(string)
+	if jti == "" {
+		return Tokens{}, repo.ErrNotFound
+	}
+	rev, err := s.c.IsRevoked(ctx, jti)
+	if err != nil {
+		return Tokens{}, err
+	}
+	if rev {
+		return Tokens{}, repo.ErrNotFound
+	}
+
+	uid := int64(claims["sub"].(float64))
+	role, _ := claims["role"].(string)
+
+	_ = s.c.RevokeJTI(ctx, jti, time.Duration(s.cfg.JWTRefreshTTLDays)*24*time.Hour)
+	return s.issue(uid, role)
 }
 
-func (s *AuthService) tokens(u *domain.User) TokenPair {
+func (s *AuthService) Logout(ctx context.Context, refresh string) error {
+	tok, _, err := jwt.NewParser().ParseUnverified(refresh, jwt.MapClaims{})
+	if err != nil {
+		return err
+	}
+	claims := tok.Claims.(jwt.MapClaims)
+	jti, _ := claims["jti"].(string)
+	if jti == "" {
+		return nil
+	}
+	return s.c.RevokeJTI(ctx, jti, time.Duration(s.cfg.JWTRefreshTTLDays)*24*time.Hour)
+}
+
+func (s *AuthService) issue(uid int64, role string) (Tokens, error) {
 	now := time.Now()
 	access := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"sub":  u.ID,
-		"role": u.Role,
-		"exp":  now.Add(time.Duration(s.cfg.JWTAccessTTLMin) * time.Minute).Unix(),
-		"iat":  now.Unix(),
+		"sub": uid, "role": role, "typ": "access", "iat": now.Unix(),
+		"exp": now.Add(time.Duration(s.cfg.JWTAccessTTLMin) * time.Minute).Unix(),
 	})
 	refresh := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"sub":  u.ID,
-		"role": u.Role,
-		"exp":  now.Add(time.Duration(s.cfg.JWTRefreshTTLDays) * 24 * time.Hour).Unix(),
-		"iat":  now.Unix(),
-		"typ":  "refresh",
+		"sub": uid, "role": role, "typ": "refresh", "iat": now.Unix(),
+		"exp": now.Add(time.Duration(s.cfg.JWTRefreshTTLDays) * 24 * time.Hour).Unix(),
+		"jti": randString(32),
 	})
-	ats, _ := access.SignedString([]byte(s.cfg.JWTAccessSecret))
-	rts, _ := refresh.SignedString([]byte(s.cfg.JWTRefreshSecret))
-	return TokenPair{AccessToken: ats, RefreshToken: rts}
+	ak, err := access.SignedString([]byte(s.cfg.JWTAccessSecret))
+	if err != nil {
+		return Tokens{}, err
+	}
+	rk, err := refresh.SignedString([]byte(s.cfg.JWTRefreshSecret))
+	if err != nil {
+		return Tokens{}, err
+	}
+	return Tokens{AccessToken: ak, RefreshToken: rk}, nil
+}
+
+func randString(n int) string {
+	const a = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	b := make([]byte, n)
+	seed := time.Now().UnixNano()
+	for i := range b {
+		seed = (seed*1664525 + 1013904223)
+		b[i] = a[seed%int64(len(a))]
+	}
+	return string(b)
 }

@@ -4,17 +4,50 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"fullstack-oracle/go-api/internal/domain"
 )
 
-var ErrNotFound = errors.New("not_found")
+var ErrNotFound = errors.New("not found")
 
 type ItemRepo struct{ DB *sql.DB }
 
 func NewItemRepo(db *sql.DB) *ItemRepo { return &ItemRepo{DB: db} }
 
+func (r *ItemRepo) ListPagedSorted(ctx context.Context, limit, offset int, sort string) ([]domain.Item, error) {
+	col, dir := "id", "DESC"
+	if sort != "" {
+		parts := strings.Split(sort, ",")
+		if len(parts) > 0 {
+			switch parts[0] {
+			case "id", "name", "price", "created_at":
+				col = parts[0]
+			}
+		}
+		if len(parts) > 1 && strings.ToLower(parts[1]) == "asc" {
+			dir = "ASC"
+		}
+	}
+	q := fmt.Sprintf(`SELECT id,name,price,created_at FROM app.items ORDER BY %s %s LIMIT $1 OFFSET $2`, col, dir)
+	rows, err := r.DB.QueryContext(ctx, q, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []domain.Item
+	for rows.Next() {
+		var it domain.Item
+		if err := rows.Scan(&it.ID, &it.Name, &it.Price, &it.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, it)
+	}
+	return out, rows.Err()
+}
 func (r *ItemRepo) List(ctx context.Context) ([]domain.Item, error) {
 	const q = `SELECT id,name,price,created_at FROM app.items ORDER BY id DESC LIMIT 100`
 	rows, err := r.DB.QueryContext(ctx, q)

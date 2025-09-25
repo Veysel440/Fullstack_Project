@@ -1,18 +1,19 @@
 package http
 
 import (
-	"fullstack-oracle/go-api/internal/metrics"
 	"log/slog"
 	stdhttp "net/http"
 	"os"
+
+	"fullstack-oracle/go-api/internal/metrics"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-func Router(h *Handlers, corsMW func(stdhttp.Handler) stdhttp.Handler, logger *slog.Logger, rl *RateLimiter,
-	jwtv *JWTVerifier, ah *AuthHandlers,
+func Router(h *Handlers, corsMW func(stdhttp.Handler) stdhttp.Handler, logger *slog.Logger,
+	rl *RateLimiter, jwtv *JWTVerifier, ah *AuthHandlers,
 ) stdhttp.Handler {
 	r := chi.NewRouter()
 	r.Use(RequestID())
@@ -24,17 +25,14 @@ func Router(h *Handlers, corsMW func(stdhttp.Handler) stdhttp.Handler, logger *s
 	r.Use(corsMW)
 
 	r.Mount("/debug", middleware.Profiler())
-
 	r.Get("/openapi.yaml", OpenAPISpec)
 	r.Get("/docs", Docs)
 
-	r.Use(Metrics())
-	r.Method(stdhttp.MethodGet, "/metrics", MetricsHandler())
+	// metrics
+	r.Use(metrics.Middleware())
 	mh := promhttp.HandlerFor(metrics.Registry, promhttp.HandlerOpts{})
-	mu := os.Getenv("METRICS_USER")
-	mp := os.Getenv("METRICS_PASS")
-	if mu != "" {
-		mh = BasicAuth(mu, mp)(mh)
+	if u := os.Getenv("METRICS_USER"); u != "" {
+		mh = BasicAuth(u, os.Getenv("METRICS_PASS"))(mh)
 	}
 	r.Method("GET", "/metrics", mh)
 
