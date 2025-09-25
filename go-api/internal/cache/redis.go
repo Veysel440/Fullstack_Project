@@ -13,7 +13,10 @@ func New() *redis.Client {
 	if addr == "" {
 		return nil
 	}
-	return redis.NewClient(&redis.Options{Addr: addr})
+	return redis.NewClient(&redis.Options{
+		Addr:     addr,
+		Password: os.Getenv("REDIS_PASSWORD"),
+	})
 }
 
 func Ping(ctx context.Context, rdb *redis.Client) error {

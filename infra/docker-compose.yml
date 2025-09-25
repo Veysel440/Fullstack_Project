@@ -23,7 +23,6 @@ services:
     build: { context: ../go-api, dockerfile: Dockerfile }
     env_file: ../go-api/.env
     depends_on: { postgres: { condition: service_healthy } }
-    # host 8080 bağlama YOK. Web reverse proxy ile erişecek: http://localhost:3000/api/...
     read_only: true
     tmpfs: ["/tmp:rw,noexec,nosuid,size=64m"]
     security_opt: ["no-new-privileges:true"]
@@ -50,8 +49,9 @@ services:
 
   redis:
     image: redis:7-alpine
-    command: ["redis-server","--appendonly","yes"]
-    ports: ["6379:6379"]
+    command: [ "redis-server","--appendonly","yes","--requirepass","${REDIS_PASSWORD}" ]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-change-me}
     restart: unless-stopped
 
   kafka:

@@ -1,11 +1,14 @@
 package http
 
 import (
+	"fullstack-oracle/go-api/internal/metrics"
 	"log/slog"
 	stdhttp "net/http"
+	"os"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func Router(h *Handlers, corsMW func(stdhttp.Handler) stdhttp.Handler, logger *slog.Logger, rl *RateLimiter,
@@ -27,6 +30,13 @@ func Router(h *Handlers, corsMW func(stdhttp.Handler) stdhttp.Handler, logger *s
 
 	r.Use(Metrics())
 	r.Method(stdhttp.MethodGet, "/metrics", MetricsHandler())
+	mh := promhttp.HandlerFor(metrics.Registry, promhttp.HandlerOpts{})
+	mu := os.Getenv("METRICS_USER")
+	mp := os.Getenv("METRICS_PASS")
+	if mu != "" {
+		mh = BasicAuth(mu, mp)(mh)
+	}
+	r.Method("GET", "/metrics", mh)
 
 	r.Get("/health", h.Health)
 
