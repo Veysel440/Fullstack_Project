@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/getsentry/sentry-go"
@@ -12,6 +13,7 @@ import (
 
 	"fullstack-oracle/go-api/internal/config"
 	"fullstack-oracle/go-api/internal/db"
+	"fullstack-oracle/go-api/internal/events"
 	hh "fullstack-oracle/go-api/internal/http"
 	"fullstack-oracle/go-api/internal/migrate"
 	"fullstack-oracle/go-api/internal/repo"
@@ -21,12 +23,9 @@ import (
 func main() {
 	cfg := config.FromEnv()
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
-
+	
 	if cfg.SentryDSN != "" {
-		_ = sentry.Init(sentry.ClientOptions{
-			Dsn:         cfg.SentryDSN,
-			Environment: cfg.SentryEnv,
-		})
+		_ = sentry.Init(sentry.ClientOptions{Dsn: cfg.SentryDSN, Environment: cfg.SentryEnv})
 		defer sentry.Flush(2 * time.Second)
 	}
 
@@ -40,26 +39,31 @@ func main() {
 		os.Exit(1)
 	}
 
-	// domain servisleri
 	itemRepo := repo.NewItemRepo(d)
-	itemSvc := service.NewItemService(itemRepo)
+	ev := events.NewWriter()
+	if ev != nil {
+		defer ev.Close()
+	}
+	itemSvc := service.NewItemService(itemRepo, ev)
 	h := &hh.Handlers{S: itemSvc}
 
-	// auth kablolama
-	userRepo := repo.NewUserRepo(d)
-	authSvc := service.NewAuthService(cfg, userRepo)
-	ah := &hh.AuthHandlers{Cfg: cfg, S: authSvc, Val: validator.New()}
+	rl := hh.NewRateLimiter(float64(cfg.RateLimitRPS), cfg.RateLimitBurst)
 
-	jwtv := &hh.JWTVerifier{
-		AccessSecret:  []byte(cfg.JWTAccessSecret),
-		RefreshSecret: []byte(cfg.JWTRefreshSecret),
-		Logger:        logger,
+	var jwtv *hh.JWTVerifier
+	var ah *hh.AuthHandlers
+	if cfg.JWTAccessSecret != "" && cfg.JWTRefreshSecret != "" {
+		userRepo := repo.NewUserRepo(d)
+		authSvc := service.NewAuthService(cfg, userRepo)
+		ah = &hh.AuthHandlers{Cfg: cfg, S: authSvc, Val: validator.New()}
+		jwtv = &hh.JWTVerifier{
+			AccessSecret:  []byte(cfg.JWTAccessSecret),
+			RefreshSecret: []byte(cfg.JWTRefreshSecret),
+			Logger:        logger,
+		}
 	}
 
-	rl := hh.NewRateLimiter(cfg.RateLimitRPS, cfg.RateLimitBurst)
-
-	// Router yeni imza:
-	app := hh.Router(h, hh.CORS(cfg.CORSOrigins), logger, rl, jwtv, ah)
+	corsMW := hh.CORS(strings.Join(cfg.CORSOrigins, ","))
+	app := hh.Router(h, corsMW, logger, rl, jwtv, ah)
 
 	addr := ":" + cfg.Port
 	logger.Info("api_listen", "addr", addr)

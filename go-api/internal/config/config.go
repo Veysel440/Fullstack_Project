@@ -3,60 +3,69 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 )
 
 type Config struct {
-	Port, DBUser, DBPass, DBHost, DBPort, DBName, SSLMode, CORSOrigins string
-	RateLimitRPS                                                       float64
-	RateLimitBurst                                                     int
-	SentryDSN                                                          string
-	SentryEnv                                                          string
-	JWTAccessSecret                                                    string
-	JWTRefreshSecret                                                   string
-	JWTAccessTTLMin                                                    int
-	JWTRefreshTTLDays                                                  int
+	Port              string
+	DBURL             string
+	CORSOrigins       []string
+	SentryDSN         string
+	SentryEnv         string
+	RateLimitRPS      int
+	RateLimitBurst    int
+	JWTAccessSecret   string
+	JWTRefreshSecret  string
+	JWTAccessTTLMin   int
+	JWTRefreshTTLDays int
+	RedisAddr         string
+	KafkaBrokers      string
+	KafkaTopicItems   string
+}
+
+func getenv(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
+func getenvInt(key string, def int) int {
+	if v := os.Getenv(key); v != "" {
+		if i, err := strconv.Atoi(v); err == nil {
+			return i
+		}
+	}
+	return def
+}
+func splitCSV(s string) []string {
+	if s == "" {
+		return nil
+	}
+	out := []string{}
+	for _, p := range strings.Split(s, ",") {
+		t := strings.TrimSpace(p)
+		if t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 func FromEnv() Config {
 	return Config{
-		Port:              get("PORT", "8080"),
-		DBUser:            get("DB_USER", "app"),
-		DBPass:            get("DB_PASS", "app"),
-		DBHost:            get("DB_HOST", "postgres"),
-		DBPort:            get("DB_PORT", "5432"),
-		DBName:            get("DB_NAME", "appdb"),
-		SSLMode:           get("SSL_MODE", "disable"),
-		CORSOrigins:       get("CORS_ORIGINS", "*"),
-		RateLimitRPS:      getFloat("RATE_LIMIT_RPS", 5),
-		RateLimitBurst:    getInt("RATE_LIMIT_BURST", 10),
-		SentryDSN:         get("SENTRY_DSN", ""),
-		SentryEnv:         get("SENTRY_ENV", "dev"),
-		JWTAccessSecret:   get("JWT_ACCESS_SECRET", "dev-access"),
-		JWTRefreshSecret:  get("JWT_REFRESH_SECRET", "dev-refresh"),
-		JWTAccessTTLMin:   getInt("JWT_ACCESS_TTL_MIN", 15),
-		JWTRefreshTTLDays: getInt("JWT_REFRESH_TTL_DAYS", 7),
+		Port:              getenv("PORT", "8080"),
+		DBURL:             getenv("DB_URL", ""),
+		CORSOrigins:       splitCSV(getenv("CORS_ORIGINS", "")),
+		SentryDSN:         getenv("SENTRY_DSN", ""),
+		SentryEnv:         getenv("SENTRY_ENV", "dev"),
+		RateLimitRPS:      getenvInt("RATE_LIMIT_RPS", 5),
+		RateLimitBurst:    getenvInt("RATE_LIMIT_BURST", 10),
+		JWTAccessSecret:   getenv("JWT_ACCESS_SECRET", ""),
+		JWTRefreshSecret:  getenv("JWT_REFRESH_SECRET", ""),
+		JWTAccessTTLMin:   getenvInt("JWT_ACCESS_TTL_MIN", 15),
+		JWTRefreshTTLDays: getenvInt("JWT_REFRESH_TTL_DAYS", 7),
+		RedisAddr:         getenv("REDIS_ADDR", ""),
+		KafkaBrokers:      getenv("KAFKA_BROKERS", ""),
+		KafkaTopicItems:   getenv("KAFKA_TOPIC_ITEMS", "items"),
 	}
-}
-
-func get(k, d string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	return d
-}
-func getInt(k string, d int) int {
-	if v := os.Getenv(k); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			return n
-		}
-	}
-	return d
-}
-func getFloat(k string, d float64) float64 {
-	if v := os.Getenv(k); v != "" {
-		if f, err := strconv.ParseFloat(v, 64); err == nil {
-			return f
-		}
-	}
-	return d
 }

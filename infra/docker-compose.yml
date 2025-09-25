@@ -6,12 +6,8 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
     command: >
-      postgres
-      -c log_min_duration_statement=200ms
-      -c log_statement=none
-      -c log_connections=on
-      -c log_disconnections=on
-      -c shared_buffers=128MB
+      postgres -c log_min_duration_statement=200ms -c log_statement=none
+               -c log_connections=on -c log_disconnections=on -c shared_buffers=128MB
     ports: ["5432:5432"]
     volumes:
       - pg-data:/var/lib/postgresql/data
@@ -27,7 +23,7 @@ services:
     build: { context: ../go-api, dockerfile: Dockerfile }
     env_file: ../go-api/.env
     depends_on: { postgres: { condition: service_healthy } }
-    ports: ["8080:8080"]
+    # host 8080 bağlama YOK. Web reverse proxy ile erişecek: http://localhost:3000/api/...
     read_only: true
     tmpfs: ["/tmp:rw,noexec,nosuid,size=64m"]
     security_opt: ["no-new-privileges:true"]
@@ -41,7 +37,7 @@ services:
       dockerfile: Dockerfile
       args: { VITE_API_URL: /api }
     depends_on: { api: { condition: service_started } }
-    ports: ["3000:80"]
+    ports: ["3001:80"]
     read_only: true
     tmpfs:
       - /var/cache/nginx:rw,noexec,nosuid,size=64m
@@ -52,5 +48,63 @@ services:
     deploy: { resources: { limits: { memory: 128M, cpus: "0.50" } } }
     restart: unless-stopped
 
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server","--appendonly","yes"]
+    ports: ["6379:6379"]
+    restart: unless-stopped
+
+  kafka:
+    image: bitnami/kafka:3
+    environment:
+      - KAFKA_ENABLE_KRAFT=yes
+      - KAFKA_CFG_PROCESS_ROLES=broker,controller
+      - KAFKA_CFG_NODE_ID=1
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
+    ports: ["9092:9092"]
+    restart: unless-stopped
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ports: ["9200:9200"]
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    restart: unless-stopped
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.15.3
+    environment: [ "ELASTICSEARCH_HOSTS=http://elasticsearch:9200" ]
+    ports: ["5601:5601"]
+    depends_on: [ elasticsearch ]
+    restart: unless-stopped
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.15.3
+    volumes:
+      - ./logging/logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
+    ports: ["5044:5044"]
+    depends_on: [ elasticsearch ]
+    restart: unless-stopped
+
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:8.15.3
+    user: root
+    volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./logging/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+    depends_on: [ logstash ]
+    restart: unless-stopped
+
 volumes:
   pg-data:
+  es-data:

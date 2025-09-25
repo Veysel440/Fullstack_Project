@@ -1,11 +1,14 @@
 package http
 
 import (
+	"crypto/sha1"
 	"encoding/json"
 	"errors"
+	"fmt"
 	stdhttp "net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"fullstack-oracle/go-api/internal/domain"
 	"fullstack-oracle/go-api/internal/repo"
@@ -23,10 +26,24 @@ func (h *Handlers) Health(w stdhttp.ResponseWriter, _ *stdhttp.Request) {
 	writeJSON(w, stdhttp.StatusOK, map[string]any{"ok": true})
 }
 
+func weakTag(ts time.Time, n int) string {
+	h := sha1.Sum([]byte(fmt.Sprintf("%d-%d", ts.Unix(), n)))
+	return `W/"` + fmt.Sprintf("%x", h[:]) + `"`
+}
+
 func (h *Handlers) ListItems(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	q := r.URL.Query()
 	page, _ := strconv.Atoi(q.Get("page"))
 	size, _ := strconv.Atoi(q.Get("size"))
+	
+	lm, cnt, _ := h.S.ListStamp(r.Context())
+	tag := weakTag(lm, cnt)
+	if inm := r.Header.Get("If-None-Match"); inm != "" && inm == tag {
+		w.WriteHeader(stdhttp.StatusNotModified)
+		return
+	}
+	w.Header().Set("ETag", tag)
+	w.Header().Set("Cache-Control", "private, max-age=30")
 
 	items, err := h.S.List(r.Context(), page, size)
 	if err != nil {
@@ -42,8 +59,19 @@ func (h *Handlers) GetItem(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		writeValidation(w, r, map[string]string{"id": "must be integer"})
 		return
 	}
+
+	if ts, e := h.S.GetStamp(r.Context(), id); e == nil {
+		tag := weakTag(ts, int(id))
+		if r.Header.Get("If-None-Match") == tag {
+			w.WriteHeader(stdhttp.StatusNotModified)
+			return
+		}
+		w.Header().Set("ETag", tag)
+		w.Header().Set("Cache-Control", "private, max-age=60")
+	}
+
 	it, err := h.S.Get(r.Context(), id)
-	if errors.Is(err, repo.ErrNotFound) {
+	if err == repo.ErrNotFound {
 		writeError(w, r, 404, "not_found", "item not found")
 		return
 	}

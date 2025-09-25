@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"time"
 
 	"fullstack-oracle/go-api/internal/domain"
 )
@@ -90,6 +91,31 @@ func (r *ItemRepo) Update(ctx context.Context, id int64, in domain.CreateItemDTO
 		return domain.Item{}, err
 	}
 	return it, nil
+}
+
+func (r *ItemRepo) ListStamp(ctx context.Context) (time.Time, int, error) {
+	const q = `SELECT COALESCE(MAX(updated_at), MAX(created_at)) AS lm, COUNT(*) FROM app.items`
+	var lm sql.NullTime
+	var c int
+	if err := r.DB.QueryRowContext(ctx, q).Scan(&lm, &c); err != nil {
+		return time.Time{}, 0, err
+	}
+	if !lm.Valid {
+		return time.Time{}, c, nil
+	}
+	return lm.Time.UTC(), c, nil
+}
+
+func (r *ItemRepo) GetStamp(ctx context.Context, id int64) (time.Time, error) {
+	const q = `SELECT COALESCE(updated_at, created_at) FROM app.items WHERE id=$1`
+	var t time.Time
+	if err := r.DB.QueryRowContext(ctx, q, id).Scan(&t); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return time.Time{}, ErrNotFound
+		}
+		return time.Time{}, err
+	}
+	return t.UTC(), nil
 }
 
 func (r *ItemRepo) Delete(ctx context.Context, id int64) error {
