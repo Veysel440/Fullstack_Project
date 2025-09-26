@@ -30,16 +30,12 @@ func (s *ItemService) List(ctx context.Context, page, size int, sort string) ([]
 	if size < 1 || size > 100 {
 		size = 20
 	}
-	c, cancel := ctx5(ctx)
-	defer cancel()
-	items, total, err := s.r.ListPagedSorted(c, size, (page-1)*size, sort)
-	return items, total, err
+	return s.r.ListPagedSorted(ctx, size, (page-1)*size, sort)
 }
 
 func (s *ItemService) ListStamp(ctx context.Context) (time.Time, int, error) {
 	return s.r.ListStamp(ctx)
 }
-
 func (s *ItemService) GetStamp(ctx context.Context, id int64) (time.Time, error) {
 	return s.r.GetStamp(ctx, id)
 }

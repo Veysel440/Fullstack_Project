@@ -22,15 +22,15 @@ type Handlers struct{ S *service.ItemService }
 
 var v = validator.New()
 
-func (h *Handlers) Health(w stdhttp.ResponseWriter, _ *stdhttp.Request) {
-	writeJSON(w, stdhttp.StatusOK, map[string]any{"ok": true})
-}
-
 type PagedItems struct {
 	Items []domain.Item `json:"items"`
 	Page  int           `json:"page"`
 	Size  int           `json:"size"`
 	Total int64         `json:"total"`
+}
+
+func (h *Handlers) Health(w stdhttp.ResponseWriter, _ *stdhttp.Request) {
+	writeJSON(w, stdhttp.StatusOK, map[string]any{"ok": true})
 }
 
 func weakTag(ts time.Time, n int) string {
@@ -58,6 +58,7 @@ func (h *Handlers) ListItems(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		Items: items, Page: page, Size: size, Total: total,
 	})
 }
+
 func (h *Handlers) GetItem(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	id, err := parseID(chi.URLParam(r, "id"))
 	if err != nil {
