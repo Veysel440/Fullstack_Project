@@ -1,3 +1,5 @@
+//go:build integration
+
 package repo_test
 
 import (
@@ -7,34 +9,43 @@ import (
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-	tc "github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 
+	"fullstack-oracle/go-api/internal/domain"
 	"fullstack-oracle/go-api/internal/repo"
 )
 
 func TestCreateList_Integration(t *testing.T) {
-	ctx := context.Background()
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
 	pg, err := postgres.RunContainer(ctx,
 		postgres.WithDatabase("postgres"),
 		postgres.WithUsername("postgres"),
 		postgres.WithPassword("postgres"),
 	)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("run pg container: %v", err)
 	}
-	defer pg.Terminate(ctx)
+	defer func() { _ = pg.Terminate(context.Background()) }()
 
-	uri, _ := pg.ConnectionString(ctx, "sslmode=disable")
+	uri, err := pg.ConnectionString(ctx, "sslmode=disable")
+	if err != nil {
+		t.Fatalf("conn string: %v", err)
+	}
+
 	db, err := sql.Open("pgx", uri)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("sql.Open: %v", err)
 	}
 	defer db.Close()
 
+	// minimal şema
 	_, _ = db.ExecContext(ctx, `
-		CREATE SCHEMA app;
-		CREATE TABLE app.items(
+		CREATE SCHEMA IF NOT EXISTS app;
+		CREATE TABLE IF NOT EXISTS app.items(
 		  id bigserial PRIMARY KEY,
 		  name varchar(100) NOT NULL,
 		  price numeric(10,2) NOT NULL DEFAULT 0,
@@ -43,18 +54,15 @@ func TestCreateList_Integration(t *testing.T) {
 	`)
 
 	r := repo.NewItemRepo(db)
-	_, err = r.Create(ctx, repo.CreateItemDTO{Name: "X", Price: 1.23})
-	if err != nil {
-		t.Fatal(err)
-	}
 
+	if _, err := r.Create(ctx, domain.CreateItemDTO{Name: "X", Price: 1.23}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
 	list, err := r.List(ctx)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("list: %v", err)
 	}
 	if len(list) == 0 {
-		t.Fatal("no data")
+		t.Fatal("expected at least 1 row")
 	}
-
-	_ = time.Now()
 }
