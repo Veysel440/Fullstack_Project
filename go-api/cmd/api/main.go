@@ -29,7 +29,7 @@ func main() {
 		_ = sentry.Init(sentry.ClientOptions{Dsn: cfg.SentryDSN, Environment: cfg.SentryEnv})
 		defer sentry.Flush(2 * time.Second)
 	}
-	
+
 	d, err := db.Open(cfg)
 	if err != nil {
 		logger.Error("db_open", "err", err)
@@ -50,7 +50,7 @@ func main() {
 	}
 
 	itemRepo := repo.NewItemRepo(d)
-	itemSvc := service.NewItemService(itemRepo, ev)
+	itemSvc := service.NewItemService(itemRepo, nil)
 	h := &hh.Handlers{S: itemSvc}
 
 	rl := hh.NewRateLimiter(float64(cfg.RateLimitRPS), cfg.RateLimitBurst)

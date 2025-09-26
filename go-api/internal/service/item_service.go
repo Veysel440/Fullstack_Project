@@ -3,10 +3,10 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"fullstack-oracle/go-api/internal/events"
 	"time"
 
 	"fullstack-oracle/go-api/internal/domain"
+	"fullstack-oracle/go-api/internal/events"
 	"fullstack-oracle/go-api/internal/repo"
 )
 
@@ -23,14 +23,17 @@ func ctx5(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, 5*time.Second)
 }
 
-func (s *ItemService) List(ctx context.Context, page, size int) ([]domain.Item, error) {
+func (s *ItemService) List(ctx context.Context, page, size int, sort string) ([]domain.Item, int64, error) {
 	if page < 1 {
 		page = 1
 	}
 	if size < 1 || size > 100 {
 		size = 20
 	}
-	return s.r.ListPaged(ctx, size, (page-1)*size)
+	c, cancel := ctx5(ctx)
+	defer cancel()
+	items, total, err := s.r.ListPagedSorted(c, size, (page-1)*size, sort)
+	return items, total, err
 }
 
 func (s *ItemService) ListStamp(ctx context.Context) (time.Time, int, error) {
@@ -57,6 +60,7 @@ func (s *ItemService) Create(ctx context.Context, in domain.CreateItemDTO) (doma
 	}
 	return it, err
 }
+
 func (s *ItemService) Update(ctx context.Context, id int64, in domain.CreateItemDTO) (domain.Item, error) {
 	c, cancel := ctx5(ctx)
 	defer cancel()
@@ -67,6 +71,7 @@ func (s *ItemService) Update(ctx context.Context, id int64, in domain.CreateItem
 	}
 	return it, err
 }
+
 func (s *ItemService) Delete(ctx context.Context, id int64) error {
 	c, cancel := ctx5(ctx)
 	defer cancel()

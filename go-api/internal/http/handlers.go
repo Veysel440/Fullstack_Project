@@ -26,6 +26,13 @@ func (h *Handlers) Health(w stdhttp.ResponseWriter, _ *stdhttp.Request) {
 	writeJSON(w, stdhttp.StatusOK, map[string]any{"ok": true})
 }
 
+type PagedItems struct {
+	Items []domain.Item `json:"items"`
+	Page  int           `json:"page"`
+	Size  int           `json:"size"`
+	Total int64         `json:"total"`
+}
+
 func weakTag(ts time.Time, n int) string {
 	h := sha1.Sum([]byte(fmt.Sprintf("%d-%d", ts.Unix(), n)))
 	return `W/"` + fmt.Sprintf("%x", h[:]) + `"`
@@ -34,14 +41,23 @@ func weakTag(ts time.Time, n int) string {
 func (h *Handlers) ListItems(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	size, _ := strconv.Atoi(r.URL.Query().Get("size"))
-	items, err := h.S.List(r.Context(), page, size)
+	sort := r.URL.Query().Get("sort")
+
+	items, total, err := h.S.List(r.Context(), page, size, sort)
 	if err != nil {
 		writeError(w, r, 500, "list_failed", err.Error())
 		return
 	}
-	writeJSON(w, stdhttp.StatusOK, items)
+	if page < 1 {
+		page = 1
+	}
+	if size < 1 {
+		size = 20
+	}
+	writeJSON(w, stdhttp.StatusOK, PagedItems{
+		Items: items, Page: page, Size: size, Total: total,
+	})
 }
-
 func (h *Handlers) GetItem(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	id, err := parseID(chi.URLParam(r, "id"))
 	if err != nil {
