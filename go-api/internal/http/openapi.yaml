@@ -116,10 +116,8 @@ paths:
       security: [ { bearerAuth: [] } ]
       summary: Current user
       responses:
-        '200':
-          description: The current user payload
-        '401':
-          description: Unauthorized
+        '200': { description: OK }
+        '401': { description: Unauthorized }
 
   /items/:
     get:
@@ -137,14 +135,17 @@ paths:
           name: sort
           description: "Field and direction, e.g. 'price,asc' or 'created_at,desc'"
           schema: { type: string }
+        - in: query
+          name: q
+          description: "Search by name (ILIKE)"
+          schema: { type: string }
       responses:
         '200':
           description: Paged items
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PagedItems' }
-        '401':
-          description: Unauthorized
+        '401': { description: Unauthorized }
     post:
       tags: [items]
       security: [ { bearerAuth: [] } ]
@@ -165,8 +166,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
-        '401':
-          description: Unauthorized
+        '401': { description: Unauthorized }
 
   /items/{id}:
     parameters:

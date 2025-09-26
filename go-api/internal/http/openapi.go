@@ -230,13 +230,11 @@ paths:
           content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
 `)
 
-// Serves /openapi.yaml
 func OpenAPISpec(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/yaml; charset=utf-8")
 	_, _ = w.Write(openapiYAML)
 }
 
-// Very small docs page (Redoc)
 func Docs(w http.ResponseWriter, _ *http.Request) {
 	const html = `<!doctype html>
 <html>

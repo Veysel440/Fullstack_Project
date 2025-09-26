@@ -23,14 +23,14 @@ func ctx5(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, 5*time.Second)
 }
 
-func (s *ItemService) List(ctx context.Context, page, size int, sort string) ([]domain.Item, int64, error) {
+func (s *ItemService) List(ctx context.Context, page, size int, sort, q string) ([]domain.Item, int64, error) {
 	if page < 1 {
 		page = 1
 	}
 	if size < 1 || size > 100 {
 		size = 20
 	}
-	return s.r.ListPagedSorted(ctx, size, (page-1)*size, sort)
+	return s.r.ListPagedSortedWithTotal(ctx, size, (page-1)*size, sort, q)
 }
 
 func (s *ItemService) ListStamp(ctx context.Context) (time.Time, int, error) {

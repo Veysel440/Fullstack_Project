@@ -28,7 +28,6 @@ func Router(h *Handlers, corsMW func(stdhttp.Handler) stdhttp.Handler, logger *s
 	r.Get("/openapi.yaml", OpenAPISpec)
 	r.Get("/docs", Docs)
 
-	// metrics
 	r.Use(metrics.Middleware())
 	mh := promhttp.HandlerFor(metrics.Registry, promhttp.HandlerOpts{})
 	if u := os.Getenv("METRICS_USER"); u != "" {

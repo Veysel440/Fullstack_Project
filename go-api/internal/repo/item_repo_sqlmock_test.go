@@ -23,8 +23,7 @@ func TestGet_OK(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT id,name,price,created_at FROM app.items WHERE id=$1`)).
 		WithArgs(int64(1)).WillReturnRows(rows)
 
-	_, err := r.Get(context.Background(), 1)
-	if err != nil {
+	if _, err := r.Get(context.Background(), 1); err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 }
