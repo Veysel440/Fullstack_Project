@@ -25,102 +25,107 @@ type RetryConfig struct {
 	DB           DBExec
 }
 
-type RetryWorker struct {
-	r   *kafka.Reader
-	w   *kafka.Writer
-	log *slog.Logger
-	rc  RetryConfig
-}
+const hdrAttempts = "x-attempts"
 
-func NewRetryWorker(rc RetryConfig) *RetryWorker {
-	lg := rc.Logger
-	if lg == nil {
-		lg = slog.Default()
+func RunRetry(ctx context.Context, cfg RetryConfig) error {
+	log := cfg.Logger
+	if log == nil {
+		log = slog.Default()
 	}
+
 	r := kafka.NewReader(kafka.ReaderConfig{
-		Brokers:        rc.Brokers,
-		GroupID:        rc.Group,
-		Topic:          rc.DLQTopic,
+		Brokers:        cfg.Brokers,
+		GroupID:        cfg.Group,
+		Topic:          cfg.DLQTopic,
 		MinBytes:       1e3,
 		MaxBytes:       10e6,
 		CommitInterval: time.Second,
 	})
-	w := &kafka.Writer{
-		Addr:         kafka.TCP(rc.Brokers...),
-		Topic:        rc.DLQTopic,
-		RequiredAcks: kafka.RequireAll,
-		BatchTimeout: 200 * time.Millisecond,
-	}
-	return &RetryWorker{r: r, w: w, log: lg, rc: rc}
-}
+	defer r.Close()
 
-func (w *RetryWorker) Close() {
-	_ = w.r.Close()
-	_ = w.w.Close()
-}
-
-func (w *RetryWorker) Run(ctx context.Context) error {
+	w := &kafka.Writer{Addr: kafka.TCP(cfg.Brokers...), Topic: cfg.DLQTopic, RequiredAcks: kafka.RequireAll}
 	defer w.Close()
+
+	backoff0 := cfg.BackoffStart
+	if backoff0 <= 0 {
+		backoff0 = 2 * time.Second
+	}
+
 	for {
-		msg, err := w.r.ReadMessage(ctx)
+		m, err := r.ReadMessage(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil
 			}
-			w.log.Error("dlq_read", "err", err)
+			log.Error("dlq_read", "err", err)
 			continue
-		}
-		attempt := headerInt(msg.Headers, "x-attempts")
-		if attempt < 1 {
-			attempt = 1
 		}
 
-		if err := w.processOnce(ctx, msg.Value); err != nil {
-			if attempt >= w.rc.MaxAttempts {
-				w.log.Error("dlq_giveup", "attempts", attempt, "err", err)
-				continue
+		attempt := 0
+		for _, h := range m.Headers {
+			if h.Key == hdrAttempts {
+				if v, e := strconv.Atoi(string(h.Value)); e == nil {
+					attempt = v
+				}
+				break
 			}
-			delay := w.rc.BackoffStart * (1 << (attempt - 1))
-			time.Sleep(delay)
-			attempt++
-			msg.Headers = upsertHeader(msg.Headers, "x-attempts", strconv.Itoa(attempt))
-			_ = w.w.WriteMessages(ctx, msg)
+		}
+
+		// try to persist to main audit table
+		if err := insertAudit(ctx, cfg.DB, m.Value); err == nil {
 			continue
+		}
+
+		// exceeded?
+		if attempt+1 >= cfg.MaxAttempts {
+			// park permanently
+			if err := parkDLQ(ctx, cfg.DB, m.Value, attempt+1); err != nil {
+				log.Error("dlq_park_insert", "err", err)
+			}
+			continue
+		}
+
+		// re-enqueue with backoff (simple sleep here)
+		time.Sleep(backoff0 * time.Duration(attempt+1))
+		m.Headers = upsertHeader(m.Headers, hdrAttempts, []byte(strconv.Itoa(attempt+1)))
+		if err := w.WriteMessages(ctx, kafka.Message{Key: m.Key, Value: m.Value, Headers: m.Headers}); err != nil {
+			log.Error("dlq_reenqueue", "err", err)
 		}
 	}
 }
 
-func (w *RetryWorker) processOnce(ctx context.Context, payload []byte) error {
+func upsertHeader(hs []kafka.Header, k string, v []byte) []kafka.Header {
+	for i := range hs {
+		if hs[i].Key == k {
+			hs[i].Value = v
+			return hs
+		}
+	}
+	return append(hs, kafka.Header{Key: k, Value: v})
+}
+
+type itemEvent struct {
+	Type string          `json:"type"`
+	Item json.RawMessage `json:"item,omitempty"`
+	ID   int64           `json:"id,omitempty"`
+}
+
+func insertAudit(ctx context.Context, db DBExec, payload []byte) error {
 	var ev itemEvent
 	if err := json.Unmarshal(payload, &ev); err != nil {
 		return err
 	}
-	if w.rc.DB == nil {
-		return nil
-	}
-	_, err := w.rc.DB.ExecContext(ctx,
+	_, err := db.ExecContext(ctx,
 		`INSERT INTO app.item_audit(evt_type, payload) VALUES ($1,$2)`,
 		ev.Type, json.RawMessage(payload),
 	)
 	return err
 }
 
-func headerInt(h []kafka.Header, key string) int {
-	for _, x := range h {
-		if x.Key == key {
-			i, _ := strconv.Atoi(string(x.Value))
-			return i
-		}
-	}
-	return 0
-}
-
-func upsertHeader(h []kafka.Header, k, v string) []kafka.Header {
-	for i := range h {
-		if h[i].Key == k {
-			h[i].Value = []byte(v)
-			return h
-		}
-	}
-	return append(h, kafka.Header{Key: k, Value: []byte(v)})
+func parkDLQ(ctx context.Context, db DBExec, payload []byte, attempts int) error {
+	_, err := db.ExecContext(ctx,
+		`INSERT INTO app.item_audit_parking(payload, attempts) VALUES ($1,$2)`,
+		json.RawMessage(payload), attempts,
+	)
+	return err
 }

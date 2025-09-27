@@ -25,6 +25,13 @@ func splitCSV(s string) []string {
 	return ss
 }
 
+func getenv(k, def string) string {
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return def
+}
+
 func main() {
 	log := slog.Default()
 	cfg := config.FromEnv()
@@ -59,11 +66,4 @@ func main() {
 		log.Error("run", "err", err)
 		os.Exit(1)
 	}
-}
-
-func getenv(k, def string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	return def
 }

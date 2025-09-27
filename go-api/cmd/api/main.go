@@ -50,7 +50,7 @@ func main() {
 	}
 
 	itemRepo := repo.NewItemRepo(d)
-	itemSvc := service.NewItemService(itemRepo, nil)
+	itemSvc := service.NewItemService(itemRepo, ev)
 	h := &hh.Handlers{S: itemSvc}
 
 	rl := hh.NewRateLimiter(float64(cfg.RateLimitRPS), cfg.RateLimitBurst)

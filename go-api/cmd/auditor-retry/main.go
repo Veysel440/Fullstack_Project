@@ -25,9 +25,17 @@ func splitCSV(s string) []string {
 	return ss
 }
 
+func envOr(k, def string) string {
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return def
+}
+
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	cfg := config.FromEnv()
+
 	d, err := db.Open(cfg)
 	if err != nil {
 		logger.Error("db_open", "err", err)
@@ -43,20 +51,12 @@ func main() {
 		Logger:       logger,
 		DB:           d,
 	}
-	w := audit.NewRetryWorker(rc)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	if err := w.Run(ctx); err != nil {
+	if err := audit.RunRetry(ctx, rc); err != nil {
 		logger.Error("retry_run", "err", err)
 		os.Exit(1)
 	}
-}
-
-func envOr(k, def string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	return def
 }

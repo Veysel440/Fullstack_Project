@@ -37,6 +37,15 @@ func getenvInt(key string, def int) int {
 	return def
 }
 
+func fromEnvOrFile(key string) string {
+	if p := os.Getenv(key + "_FILE"); p != "" {
+		if b, err := os.ReadFile(p); err == nil {
+			return strings.TrimSpace(string(b))
+		}
+	}
+	return os.Getenv(key)
+}
+
 func FromEnv() Config {
 	return Config{
 		Port:              getenv("PORT", "8080"),
