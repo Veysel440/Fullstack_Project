@@ -2,6 +2,7 @@ package http
 
 import (
 	stdhttp "net/http"
+	"strconv"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -31,12 +32,12 @@ func Metrics() func(stdhttp.Handler) stdhttp.Handler {
 			if status == 0 {
 				status = 200
 			}
-			labels := prometheus.Labels{"method": r.Method, "path": r.URL.Path, "status": httpStatusLabel(status)}
+			statusStr := strconv.Itoa(status)
+			labels := prometheus.Labels{"method": r.Method, "path": r.URL.Path, "status": statusStr}
 			reqTotal.With(labels).Inc()
 			reqDuration.With(labels).Observe(time.Since(start).Seconds())
 		})
 	}
 }
-func httpStatusLabel(s int) string { return stdhttp.StatusText(s) }
 
 func MetricsHandler() stdhttp.Handler { return promhttp.Handler() }

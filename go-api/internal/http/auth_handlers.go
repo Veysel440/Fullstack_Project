@@ -17,8 +17,15 @@ type AuthHandlers struct {
 }
 
 type loginReq struct {
-	Email    string `json:"email" validate:"required,email"`
+	Email    string `json:"email"    validate:"required,email"`
 	Password string `json:"password" validate:"required"`
+}
+
+func (a *AuthHandlers) validator() *validator.Validate {
+	if a.Val == nil {
+		a.Val = validator.New()
+	}
+	return a.Val
 }
 
 func (a *AuthHandlers) Login(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -27,7 +34,7 @@ func (a *AuthHandlers) Login(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		writeValidation(w, r, map[string]string{"body": "invalid json"})
 		return
 	}
-	if err := a.Val.Struct(in); err != nil {
+	if err := a.validator().Struct(in); err != nil {
 		writeValidation(w, r, map[string]string{"email": "required,email", "password": "required"})
 		return
 	}
@@ -60,9 +67,17 @@ func (a *AuthHandlers) Refresh(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	writeJSON(w, stdhttp.StatusOK, tok)
 }
 
+func (a *AuthHandlers) Logout(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	ref := r.Header.Get("X-Refresh-Token")
+	if ref != "" {
+		_ = a.S.Logout(r.Context(), ref)
+	}
+	w.WriteHeader(stdhttp.StatusNoContent)
+}
+
 func (a *AuthHandlers) Me(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	writeJSON(w, stdhttp.StatusOK, map[string]any{
-		"id":   userIDFrom(r.Context()),
-		"role": roleFrom(r.Context()),
+		"user_id": userIDFrom(r.Context()),
+		"role":    roleFrom(r.Context()),
 	})
 }

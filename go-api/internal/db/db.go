@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"fullstack-oracle/go-api/internal/config"
+
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -18,6 +19,7 @@ func getenvInt(k string, def int) int {
 	}
 	return def
 }
+
 func getenvDurMin(k string, defMin int) time.Duration {
 	if s := os.Getenv(k); s != "" {
 		if v, err := strconv.Atoi(s); err == nil {
@@ -32,7 +34,6 @@ func Open(cfg config.Config) (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	db.SetMaxOpenConns(getenvInt("DB_MAX_OPEN", 10))
 	db.SetMaxIdleConns(getenvInt("DB_MAX_IDLE", 5))
 	db.SetConnMaxLifetime(getenvDurMin("DB_CONN_MAX_LIFETIME_MIN", 30))

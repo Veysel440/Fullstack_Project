@@ -12,6 +12,7 @@ type bucket struct {
 	tokens float64
 	last   time.Time
 }
+
 type RateLimiter struct {
 	mu     sync.Mutex
 	m      map[string]*bucket
@@ -21,8 +22,14 @@ type RateLimiter struct {
 }
 
 func NewRateLimiter(rps float64, burst int) *RateLimiter {
-	return &RateLimiter{m: make(map[string]*bucket), rate: rps, burst: float64(burst), lastGC: time.Now()}
+	return &RateLimiter{
+		m:      make(map[string]*bucket),
+		rate:   rps,
+		burst:  float64(burst),
+		lastGC: time.Now(),
+	}
 }
+
 func (rl *RateLimiter) Middleware() func(stdhttp.Handler) stdhttp.Handler {
 	return func(next stdhttp.Handler) stdhttp.Handler {
 		return stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -34,6 +41,7 @@ func (rl *RateLimiter) Middleware() func(stdhttp.Handler) stdhttp.Handler {
 		})
 	}
 }
+
 func (rl *RateLimiter) allow(key string) bool {
 	now := time.Now()
 	rl.mu.Lock()
@@ -44,6 +52,7 @@ func (rl *RateLimiter) allow(key string) bool {
 		b = &bucket{tokens: rl.burst, last: now}
 		rl.m[key] = b
 	}
+
 	elapsed := now.Sub(b.last).Seconds()
 	b.tokens += elapsed * rl.rate
 	if b.tokens > rl.burst {
@@ -53,11 +62,13 @@ func (rl *RateLimiter) allow(key string) bool {
 		rl.gc(now)
 		return false
 	}
+
 	b.tokens -= 1
 	b.last = now
 	rl.gc(now)
 	return true
 }
+
 func (rl *RateLimiter) gc(now time.Time) {
 	if now.Sub(rl.lastGC) < time.Minute {
 		return
@@ -69,6 +80,7 @@ func (rl *RateLimiter) gc(now time.Time) {
 	}
 	rl.lastGC = now
 }
+
 func clientIP(r *stdhttp.Request) string {
 	if xf := r.Header.Get("X-Forwarded-For"); xf != "" {
 		return strings.TrimSpace(strings.Split(xf, ",")[0])

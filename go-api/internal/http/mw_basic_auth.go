@@ -11,6 +11,7 @@ func BasicAuth(user, pass string) func(http.Handler) http.Handler {
 	}
 	uu := []byte(user)
 	pp := []byte(pass)
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			u, p, ok := r.BasicAuth()

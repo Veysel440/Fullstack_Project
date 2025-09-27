@@ -44,10 +44,13 @@ func Middleware() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
-			sw := &statusWriter{ResponseWriter: w, status: 200}
+			sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 			next.ServeHTTP(sw, r)
-			Duration.WithLabelValues(r.Method, r.URL.Path).Observe(time.Since(start).Seconds())
+
+			Duration.WithLabelValues(r.Method, r.URL.Path).
+				Observe(time.Since(start).Seconds())
 			ReqTotal.WithLabelValues(r.Method, r.URL.Path, strconv.Itoa(sw.status)).Inc()
+
 			if sw.status >= 500 {
 				ErrTotal.WithLabelValues(r.URL.Path, strconv.Itoa(sw.status)).Inc()
 			}
@@ -63,4 +66,7 @@ type statusWriter struct {
 	status int
 }
 
-func (w *statusWriter) WriteHeader(code int) { w.status = code; w.ResponseWriter.WriteHeader(code) }
+func (w *statusWriter) WriteHeader(code int) {
+	w.status = code
+	w.ResponseWriter.WriteHeader(code)
+}

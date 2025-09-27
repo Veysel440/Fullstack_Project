@@ -105,7 +105,7 @@ func randString(n int) string {
 	b := make([]byte, n)
 	seed := time.Now().UnixNano()
 	for i := range b {
-		seed = (seed*1664525 + 1013904223)
+		seed = seed*1664525 + 1013904223
 		b[i] = a[seed%int64(len(a))]
 	}
 	return string(b)

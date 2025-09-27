@@ -12,8 +12,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-func Router(h *Handlers, corsMW func(stdhttp.Handler) stdhttp.Handler, logger *slog.Logger,
-	rl *RateLimiter, jwtv *JWTVerifier, ah *AuthHandlers,
+func Router(
+	h *Handlers,
+	corsMW func(stdhttp.Handler) stdhttp.Handler,
+	logger *slog.Logger,
+	rl *RateLimiter,
+	jwtv *JWTVerifier,
+	ah *AuthHandlers,
 ) stdhttp.Handler {
 	r := chi.NewRouter()
 	r.Use(RequestID())
@@ -37,23 +42,27 @@ func Router(h *Handlers, corsMW func(stdhttp.Handler) stdhttp.Handler, logger *s
 
 	r.Get("/health", h.Health)
 
-	r.Route("/auth", func(r chi.Router) {
-		r.Post("/login", ah.Login)
-		r.Post("/refresh", ah.Refresh)
-	})
-
-	r.Group(func(pr chi.Router) {
-		pr.Use(jwtv.AuthRequired("user", "admin"))
-		pr.Get("/auth/me", ah.Me)
-
-		pr.Route("/items", func(r chi.Router) {
-			r.Get("/", h.ListItems)
-			r.Post("/", h.CreateItem)
-			r.Get("/{id}", h.GetItem)
-			r.Put("/{id}", h.UpdateItem)
-			r.With(jwtv.AuthRequired("admin")).Delete("/{id}", h.DeleteItem)
+	if ah != nil {
+		r.Route("/auth", func(r chi.Router) {
+			r.Post("/login", ah.Login)
+			r.Post("/refresh", ah.Refresh)
 		})
-	})
+	}
+
+	if jwtv != nil && ah != nil {
+		r.Group(func(pr chi.Router) {
+			pr.Use(jwtv.AuthRequired("user", "admin"))
+			pr.Get("/auth/me", ah.Me)
+
+			pr.Route("/items", func(r chi.Router) {
+				r.Get("/", h.ListItems)
+				r.Post("/", h.CreateItem)
+				r.Get("/{id}", h.GetItem)
+				r.Put("/{id}", h.UpdateItem)
+				r.With(jwtv.AuthRequired("admin")).Delete("/{id}", h.DeleteItem)
+			})
+		})
+	}
 
 	return r
 }

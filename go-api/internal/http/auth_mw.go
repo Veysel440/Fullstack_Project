@@ -46,13 +46,14 @@ func (v *JWTVerifier) AuthRequired(roles ...string) func(stdhttp.Handler) stdhtt
 				return
 			}
 			tokenStr := strings.TrimPrefix(raw, "Bearer ")
+
 			tok, err := jwt.Parse(tokenStr, func(t *jwt.Token) (any, error) { return v.AccessSecret, nil })
 			if err != nil || !tok.Valid {
 				writeError(w, r, 401, "unauthorized", "invalid token")
 				return
 			}
 			claims, ok := tok.Claims.(jwt.MapClaims)
-			if !ok {
+			if !ok || claims["typ"] != "access" {
 				writeError(w, r, 401, "unauthorized", "invalid claims")
 				return
 			}
@@ -94,10 +95,7 @@ func ParseRefreshToken(refresh string, secret []byte) (int64, string, error) {
 		return 0, "", errors.New("invalid")
 	}
 	claims, ok := tok.Claims.(jwt.MapClaims)
-	if !ok {
-		return 0, "", errors.New("invalid")
-	}
-	if claims["typ"] != "refresh" {
+	if !ok || claims["typ"] != "refresh" {
 		return 0, "", errors.New("invalid")
 	}
 	var uid int64

@@ -10,14 +10,18 @@ info:
   title: Fullstack Oracle API
   version: "1.0.0"
   description: |
-    Simple Items API with JWT auth (access/refresh), rate limiting and metrics.
-    - Auth: Bearer access token (Authorization: Bearer <token>)
-    - Refresh: send **X-Refresh-Token** header.
+    Items API with JWT (access/refresh), rate limiting and Prometheus metrics.
+    - Auth: send **Authorization: Bearer <access>**
+    - Refresh: send **X-Refresh-Token** header (or JSON body { "refresh_token": ... }).
 servers:
   - url: /api
     description: Reverse-proxied behind web (nginx)
   - url: /
     description: Direct API (dev)
+tags:
+  - name: auth
+  - name: items
+  - name: health
 
 components:
   securitySchemes:
@@ -29,98 +33,118 @@ components:
     Error:
       type: object
       properties:
-        error: { type: string, example: not_found }
+        error:      { type: string, example: not_found }
+        code:       { type: string, example: not_found }
         fields:
           type: object
           additionalProperties: { type: string }
-        request_id: { type: string, description: Optional request correlation id }
+        request_id: { type: string }
     Tokens:
       type: object
       properties:
-        access_token: { type: string }
+        access_token:  { type: string }
         refresh_token: { type: string }
       required: [access_token, refresh_token]
-    User:
+    Me:
       type: object
       properties:
-        id: { type: integer, format: int64 }
-        email: { type: string, format: email }
+        id:   { type: integer, format: int64 }
         role: { type: string, example: user }
-        created_at: { type: string, format: date-time }
     Item:
       type: object
       properties:
-        id: { type: integer, format: int64 }
-        name: { type: string }
-        price: { type: number, format: float }
+        id:         { type: integer, format: int64 }
+        name:       { type: string }
+        price:      { type: number, format: float }
         created_at: { type: string, format: date-time }
       required: [id, name, price, created_at]
     CreateItemDTO:
       type: object
       properties:
-        name: { type: string, minLength: 1 }
-        price: { type: number, format: float, minimum: 0 }
+        name:  { type: string, minLength: 1, maxLength: 100 }
+        price: { type: number, minimum: 0 }
       required: [name, price]
+    PagedItems:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Item' }
+        page:  { type: integer }
+        size:  { type: integer }
+        total: { type: integer, format: int64 }
+      required: [items, page, size, total]
 
 paths:
+  /health:
+    get:
+      tags: [health]
+      summary: Liveness check
+      responses:
+        '200': { description: OK }
+
   /auth/login:
     post:
-      summary: Login and receive access/refresh tokens
+      tags: [auth]
+      summary: Login with email & password
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [email, password]
               properties:
-                email: { type: string, format: email }
-                password: { type: string, format: password }
+                email:    { type: string, format: email }
+                password: { type: string }
+              required: [email, password]
       responses:
         '200':
           description: Tokens
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Tokens' }
+          content: { application/json: { schema: { $ref: '#/components/schemas/Tokens' } } }
         '401':
           description: Unauthorized
           content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
 
   /auth/refresh:
     post:
-      summary: Rotate tokens using refresh token in header
+      tags: [auth]
+      summary: Rotate refresh token
       parameters:
         - in: header
           name: X-Refresh-Token
-          required: true
           schema: { type: string }
-          description: Refresh JWT
+          required: false
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refresh_token: { type: string }
       responses:
         '200':
-          description: New rotated tokens
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Tokens' }
-        '401':
-          description: Invalid/expired/blacklisted refresh
-          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
-
-  /auth/me:
-    get:
-      summary: Current user info
-      security: [ { bearerAuth: [] } ]
-      responses:
-        '200':
-          description: User
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/User' }
+          description: Tokens
+          content: { application/json: { schema: { $ref: '#/components/schemas/Tokens' } } }
         '401':
           description: Unauthorized
           content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
 
+  /auth/me:
+    get:
+      tags: [auth]
+      security: [ { bearerAuth: [] } ]
+      summary: Current user
+      responses:
+        '200':
+          description: The current user payload
+          content: { application/json: { schema: { $ref: '#/components/schemas/Me' } } }
+        '401': { description: Unauthorized }
+
   /items/:
     get:
+      tags: [items]
+      security: [ { bearerAuth: [] } ]
       summary: List items (paged)
       parameters:
         - in: query
@@ -131,26 +155,24 @@ paths:
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
         - in: query
           name: sort
-          schema:
-            type: string
-            enum: [created_at, -created_at, price, -price, name, -name]
-          description: >
-            Optional sorting. A leading '-' means descending.
-            **Not all deployments may implement sorting yet.**
+          description: "Field and direction, e.g. 'price,asc' or 'created_at,desc'"
+          schema: { type: string }
+        - in: query
+          name: q
+          description: "Search by name (ILIKE)"
+          schema: { type: string }
       responses:
         '200':
-          description: Items
-          content:
-            application/json:
-              schema:
-                type: array
-                items: { $ref: '#/components/schemas/Item' }
+          description: Paged items
+          content: { application/json: { schema: { $ref: '#/components/schemas/PagedItems' } } }
+        '401': { description: Unauthorized }
         '429':
           description: Rate limited
           content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
     post:
-      summary: Create item
+      tags: [items]
       security: [ { bearerAuth: [] } ]
+      summary: Create item
       requestBody:
         required: true
         content:
@@ -159,44 +181,38 @@ paths:
       responses:
         '201':
           description: Created
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Item' }
+          content: { application/json: { schema: { $ref: '#/components/schemas/Item' } } }
         '400':
           description: Validation error
           content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
-        '401':
-          description: Unauthorized
-          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '401': { description: Unauthorized }
 
   /items/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: integer, format: int64 }
     get:
+      tags: [items]
+      security: [ { bearerAuth: [] } ]
       summary: Get item by id
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: integer, format: int64 }
       responses:
         '200':
           description: OK
           headers:
-            ETag: { description: Weak ETag for conditional GET, schema: { type: string } }
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Item' }
+            ETag:
+              description: Weak ETag for conditional GET
+              schema: { type: string }
+          content: { application/json: { schema: { $ref: '#/components/schemas/Item' } } }
         '304': { description: Not Modified }
         '404':
           description: Not found
           content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
     put:
-      summary: Update item
+      tags: [items]
       security: [ { bearerAuth: [] } ]
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: integer, format: int64 }
+      summary: Update item
       requestBody:
         required: true
         content:
@@ -204,27 +220,18 @@ paths:
             schema: { $ref: '#/components/schemas/CreateItemDTO' }
       responses:
         '200':
-          description: Updated
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Item' }
+          description: OK
+          content: { application/json: { schema: { $ref: '#/components/schemas/Item' } } }
         '404':
           description: Not found
           content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
     delete:
-      summary: Delete item (admin only)
-      description: Requires role **admin** (enforced by middleware).
+      tags: [items]
       security: [ { bearerAuth: [] } ]
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: integer, format: int64 }
+      summary: Delete item (admin)
       responses:
-        '204': { description: Deleted }
-        '403':
-          description: Forbidden
-          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '204': { description: No Content }
+        '403': { description: Forbidden }
         '404':
           description: Not found
           content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
