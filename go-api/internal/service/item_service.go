@@ -78,3 +78,18 @@ func (s *ItemService) Delete(ctx context.Context, id int64) error {
 	}
 	return err
 }
+
+func (s *ItemService) DeleteBulk(ctx context.Context, ids []int64) error {
+	c, cancel := ctx5(ctx)
+	defer cancel()
+	if err := s.r.DeleteBulkTx(c, ids); err != nil {
+		return err
+	}
+	if s.ev != nil {
+		for _, id := range ids {
+			b, _ := json.Marshal(map[string]any{"type": "item.deleted", "id": id})
+			_ = s.ev.Publish(ctx, "item", b)
+		}
+	}
+	return nil
+}

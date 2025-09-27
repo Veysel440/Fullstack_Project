@@ -22,6 +22,20 @@ type Handlers struct{ S *service.ItemService }
 
 var v = validator.New()
 
+type ItemPort interface {
+	List(ctx context.Context, page, size int, sort, q string) ([]domain.Item, int64, error)
+	ListStamp(ctx context.Context) (time.Time, int, error)
+	GetStamp(ctx context.Context, id int64) (time.Time, error)
+
+	Get(ctx context.Context, id int64) (domain.Item, error)
+	Create(ctx context.Context, in domain.CreateItemDTO) (domain.Item, error)
+	Update(ctx context.Context, id int64, in domain.CreateItemDTO) (domain.Item, error)
+	Delete(ctx context.Context, id int64) error
+
+	// bulk
+	DeleteBulk(ctx context.Context, ids []int64) error
+}
+
 type PagedItems struct {
 	Items []domain.Item `json:"items"`
 	Page  int           `json:"page"`
@@ -161,4 +175,45 @@ func toFields(err error) map[string]string {
 		}
 	}
 	return out
+}
+
+func (h *Handlers) BulkDeleteItems(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	var ids []int64
+	var probe any
+	if err := json.NewDecoder(r.Body).Decode(&probe); err != nil {
+		writeValidation(w, r, map[string]string{"body": "invalid json"})
+		return
+	}
+	switch t := probe.(type) {
+	case []any:
+		for _, v := range t {
+			switch n := v.(type) {
+			case float64:
+				ids = append(ids, int64(n))
+			}
+		}
+	case map[string]any:
+		if arr, ok := t["ids"].([]any); ok {
+			for _, v := range arr {
+				if n, ok2 := v.(float64); ok2 {
+					ids = append(ids, int64(n))
+				}
+			}
+		}
+	default:
+		writeValidation(w, r, map[string]string{"ids": "required"})
+		return
+	}
+	if len(ids) == 0 {
+		writeValidation(w, r, map[string]string{"ids": "empty"})
+		return
+	}
+	if err := h.S.DeleteBulk(r.Context(), ids); errors.Is(err, repo.ErrNotFound) {
+		writeError(w, r, 404, "not_found", "no items deleted")
+		return
+	} else if err != nil {
+		writeError(w, r, 500, "bulk_delete_failed", err.Error())
+		return
+	}
+	w.WriteHeader(stdhttp.StatusNoContent)
 }

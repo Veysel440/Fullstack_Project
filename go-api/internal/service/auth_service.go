@@ -7,18 +7,22 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 
-	"fullstack-oracle/go-api/internal/cache"
 	"fullstack-oracle/go-api/internal/config"
 	"fullstack-oracle/go-api/internal/repo"
 )
 
+type RevocationStore interface {
+	IsRevoked(ctx context.Context, jti string) (bool, error)
+	RevokeJTI(ctx context.Context, jti string, ttl time.Duration) error
+}
+
 type AuthService struct {
 	cfg config.Config
 	r   *repo.UserRepo
-	c   *cache.Store
+	c   RevocationStore
 }
 
-func NewAuthService(cfg config.Config, r *repo.UserRepo, c *cache.Store) *AuthService {
+func NewAuthService(cfg config.Config, r *repo.UserRepo, c RevocationStore) *AuthService {
 	return &AuthService{cfg: cfg, r: r, c: c}
 }
 
@@ -50,18 +54,19 @@ func (s *AuthService) Refresh(ctx context.Context, oldRefresh string) (Tokens, e
 	if jti == "" {
 		return Tokens{}, repo.ErrNotFound
 	}
-	rev, err := s.c.IsRevoked(ctx, jti)
-	if err != nil {
-		return Tokens{}, err
-	}
-	if rev {
-		return Tokens{}, repo.ErrNotFound
+	if s.c != nil {
+		rev, err := s.c.IsRevoked(ctx, jti)
+		if err != nil || rev {
+			return Tokens{}, repo.ErrNotFound
+		}
 	}
 
 	uid := int64(claims["sub"].(float64))
 	role, _ := claims["role"].(string)
 
-	_ = s.c.RevokeJTI(ctx, jti, time.Duration(s.cfg.JWTRefreshTTLDays)*24*time.Hour)
+	if s.c != nil {
+		_ = s.c.RevokeJTI(ctx, jti, time.Duration(s.cfg.JWTRefreshTTLDays)*24*time.Hour)
+	}
 	return s.issue(uid, role)
 }
 

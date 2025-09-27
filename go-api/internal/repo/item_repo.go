@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"fullstack-oracle/go-api/internal/domain"
+
+	"github.com/lib/pq"
 )
 
 var ErrNotFound = errors.New("not found")
@@ -175,4 +177,25 @@ func (r *ItemRepo) GetStamp(ctx context.Context, id int64) (time.Time, error) {
 		return time.Time{}, err
 	}
 	return t.UTC(), nil
+}
+
+func (r *ItemRepo) DeleteBulkTx(ctx context.Context, ids []int64) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	tx, err := r.DB.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	res, err := tx.ExecContext(ctx, `DELETE FROM app.items WHERE id = ANY($1)`, pq.Array(ids))
+	if err != nil {
+		return err
+	}
+	aff, _ := res.RowsAffected()
+	if aff == 0 {
+		return ErrNotFound
+	}
+	return tx.Commit()
 }

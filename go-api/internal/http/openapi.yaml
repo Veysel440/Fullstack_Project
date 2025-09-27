@@ -133,6 +133,29 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+
+              /items/bulk:
+                delete:
+                  tags: [ items ]
+                  security: [ { bearerAuth: [ ] } ]
+                  summary: Bulk delete items (admin)
+                  requestBody:
+                    required: true
+                    content:
+                      application/json:
+                        schema:
+                          oneOf:
+                            - type: array
+                              items: { type: integer, format: int64 }
+                            - type: object
+                              properties:
+                                ids:
+                                  type: array
+                                  items: { type: integer, format: int64 }
+                  responses:
+                    '204': { description: Deleted }
+                    '403': { description: Forbidden }
+                    '404': { description: None matched }
     post:
       tags: [items]
       security: [ { bearerAuth: [] } ]
@@ -146,6 +169,7 @@ paths:
         '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Item' } } } }
         '400': { description: Validation error, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         '401': { description: Unauthorized }
+
 
   /items/{id}:
     parameters: [ { in: path, name: id, required: true, schema: { type: integer, format: int64 } } ]
@@ -178,3 +202,4 @@ paths:
         '204': { description: No Content }
         '403': { description: Forbidden }
         '404': { description: Not found, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+

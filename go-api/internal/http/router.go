@@ -60,6 +60,7 @@ func Router(
 				r.Get("/{id}", h.GetItem)
 				r.Put("/{id}", h.UpdateItem)
 				r.With(jwtv.AuthRequired("admin")).Delete("/{id}", h.DeleteItem)
+				r.With(jwtv.AuthRequired("admin")).Delete("/bulk", h.BulkDeleteItems)
 			})
 		})
 	}
