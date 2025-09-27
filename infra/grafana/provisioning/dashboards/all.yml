@@ -1,0 +1,9 @@
+apiVersion: 1
+providers:
+  - name: api-dashboards
+    type: file
+    disableDeletion: false
+    allowUiUpdates: true
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards

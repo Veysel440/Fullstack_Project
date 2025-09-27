@@ -18,37 +18,37 @@ func splitCSV(s string) []string {
 	if s == "" {
 		return nil
 	}
-	parts := strings.Split(s, ",")
-	for i := range parts {
-		parts[i] = strings.TrimSpace(parts[i])
+	ss := strings.Split(s, ",")
+	for i := range ss {
+		ss[i] = strings.TrimSpace(ss[i])
 	}
-	return parts
+	return ss
 }
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-
+	log := slog.Default()
 	cfg := config.FromEnv()
+
 	d, err := db.Open(cfg)
 	if err != nil {
-		logger.Error("db_open", "err", err)
+		log.Error("db_open", "err", err)
 		os.Exit(1)
 	}
 	if err := migrate.Up(context.Background(), d); err != nil {
-		logger.Error("migrate_up", "err", err)
+		log.Error("migrate", "err", err)
 		os.Exit(1)
 	}
 
 	cons, err := audit.NewConsumer(audit.Config{
 		Brokers:   splitCSV(os.Getenv("KAFKA_BROKERS")),
-		Topic:     envOr("KAFKA_ITEMS_TOPIC", "item"),
-		Group:     envOr("KAFKA_GROUP", "items-auditor"),
-		DeadTopic: envOr("KAFKA_DLQ_TOPIC", "item-dlq"),
+		Topic:     getenv("KAFKA_ITEMS_TOPIC", "item"),
+		Group:     getenv("KAFKA_GROUP", "items-auditor"),
+		DeadTopic: getenv("KAFKA_DLQ_TOPIC", "item-dlq"),
 		DB:        d,
-		Logger:    logger,
+		Logger:    log,
 	})
 	if err != nil {
-		logger.Error("consumer_new", "err", err)
+		log.Error("consumer_init", "err", err)
 		os.Exit(1)
 	}
 
@@ -56,12 +56,12 @@ func main() {
 	defer stop()
 
 	if err := cons.Run(ctx); err != nil {
-		logger.Error("consumer_run", "err", err)
+		log.Error("run", "err", err)
 		os.Exit(1)
 	}
 }
 
-func envOr(k, def string) string {
+func getenv(k, def string) string {
 	if v := os.Getenv(k); v != "" {
 		return v
 	}

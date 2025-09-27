@@ -1,0 +1,69 @@
+{
+  "title": "API – Latency/Errors/Cache/Ratelimit",
+  "tags": ["api","prometheus"],
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "job",
+        "type": "query",
+        "datasource": "Prometheus",
+        "refresh": 2,
+        "query": "label_values(up, job)",
+        "includeAll": false
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Latency P95 (ms)",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "1000 * histogram_quantile(0.95, sum by (le) (rate(api_http_request_duration_seconds_bucket{job=~\"$job\"}[5m])))",
+          "legendFormat": "p95"
+        }
+      ],
+      "id": 1
+    },
+    {
+      "type": "timeseries",
+      "title": "Error rate (5xx / all)",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(api_http_requests_total{job=~\"$job\",code=~\"5..\"}[5m])) / sum(rate(api_http_requests_total{job=~\"$job\"}[5m]))",
+          "legendFormat": "error_rate"
+        }
+      ],
+      "id": 2
+    },
+    {
+      "type": "timeseries",
+      "title": "304 hit ratio",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(api_http_requests_total{job=~\"$job\",code=\"304\"}[5m])) / sum(rate(api_http_requests_total{job=~\"$job\",code=~\"2..|3..\"}[5m]))",
+          "legendFormat": "304_ratio"
+        }
+      ],
+      "id": 3
+    },
+    {
+      "type": "timeseries",
+      "title": "Rate-limit drops",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(api_http_ratelimit_drops_total{job=~\"$job\"}[5m]))",
+          "legendFormat": "drops/s"
+        }
+      ],
+      "id": 4
+    }
+  ],
+  "schemaVersion": 36,
+  "version": 1
+}

@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/segmentio/kafka-go"
@@ -34,43 +33,29 @@ type itemEvent struct {
 }
 
 func NewConsumer(c Config) (*Consumer, error) {
-	brokers := c.Brokers
-	if len(brokers) == 1 && strings.Contains(brokers[0], ",") {
-		brokers = strings.Split(brokers[0], ",")
-		for i := range brokers {
-			brokers[i] = strings.TrimSpace(brokers[i])
-		}
+	lg := c.Logger
+	if lg == nil {
+		lg = slog.Default()
 	}
-
 	r := kafka.NewReader(kafka.ReaderConfig{
-		Brokers:        brokers,
+		Brokers:        c.Brokers,
 		GroupID:        c.Group,
 		Topic:          c.Topic,
 		MinBytes:       1e3,
 		MaxBytes:       10e6,
 		CommitInterval: time.Second,
-		MaxWait:        2 * time.Second,
 	})
-
-	w := &kafka.Writer{
-		Addr:         kafka.TCP(brokers...),
-		Topic:        c.DeadTopic,
-		RequiredAcks: kafka.RequireAll,
-		BatchTimeout: 200 * time.Millisecond,
-	}
-
-	lg := c.Logger
-	if lg == nil {
-		lg = slog.Default()
-	}
-
+	w := &kafka.Writer{Addr: kafka.TCP(c.Brokers...), Topic: c.DeadTopic, RequiredAcks: kafka.RequireAll}
 	return &Consumer{r: r, dlq: w, db: c.DB, logger: lg}, nil
 }
 
-func (c *Consumer) Run(ctx context.Context) error {
-	defer c.r.Close()
-	defer c.dlq.Close()
+func (c *Consumer) Close() {
+	_ = c.r.Close()
+	_ = c.dlq.Close()
+}
 
+func (c *Consumer) Run(ctx context.Context) error {
+	defer c.Close()
 	for {
 		m, err := c.r.ReadMessage(ctx)
 		if err != nil {
@@ -80,27 +65,22 @@ func (c *Consumer) Run(ctx context.Context) error {
 			c.logger.Error("kafka_read", "err", err)
 			continue
 		}
-		if err := c.process(ctx, m.Value); err != nil {
-			c.logger.Error("audit_process", "err", err)
+		if err := c.handle(ctx, m.Value); err != nil {
+			c.logger.Error("audit_handle", "err", err)
 			_ = c.dlq.WriteMessages(ctx, kafka.Message{Value: m.Value})
+			continue
 		}
 	}
 }
 
-func (c *Consumer) process(ctx context.Context, payload []byte) error {
+func (c *Consumer) handle(ctx context.Context, b []byte) error {
 	var ev itemEvent
-	if err := json.Unmarshal(payload, &ev); err != nil {
+	if err := json.Unmarshal(b, &ev); err != nil {
 		return err
 	}
-
-	if c.db == nil {
-		c.logger.Info("audit", "type", ev.Type, "payload", string(payload))
-		return nil
-	}
-
 	_, err := c.db.ExecContext(ctx,
 		`INSERT INTO app.item_audit(evt_type, payload) VALUES ($1,$2)`,
-		ev.Type, json.RawMessage(payload),
+		ev.Type, json.RawMessage(b),
 	)
 	return err
 }
