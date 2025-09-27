@@ -45,7 +45,11 @@ func NewConsumer(c Config) (*Consumer, error) {
 		MaxBytes:       10e6,
 		CommitInterval: time.Second,
 	})
-	w := &kafka.Writer{Addr: kafka.TCP(c.Brokers...), Topic: c.DeadTopic, RequiredAcks: kafka.RequireAll}
+	w := &kafka.Writer{
+		Addr:         kafka.TCP(c.Brokers...),
+		Topic:        c.DeadTopic,
+		RequiredAcks: kafka.RequireAll,
+	}
 	return &Consumer{r: r, dlq: w, db: c.DB, logger: lg}, nil
 }
 

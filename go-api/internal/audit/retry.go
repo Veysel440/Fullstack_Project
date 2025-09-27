@@ -50,6 +50,9 @@ func RunRetry(ctx context.Context, cfg RetryConfig) error {
 	if backoff0 <= 0 {
 		backoff0 = 2 * time.Second
 	}
+	if cfg.MaxAttempts <= 0 {
+		cfg.MaxAttempts = 5
+	}
 
 	for {
 		m, err := r.ReadMessage(ctx)
@@ -71,21 +74,17 @@ func RunRetry(ctx context.Context, cfg RetryConfig) error {
 			}
 		}
 
-		// try to persist to main audit table
 		if err := insertAudit(ctx, cfg.DB, m.Value); err == nil {
 			continue
 		}
 
-		// exceeded?
 		if attempt+1 >= cfg.MaxAttempts {
-			// park permanently
 			if err := parkDLQ(ctx, cfg.DB, m.Value, attempt+1); err != nil {
 				log.Error("dlq_park_insert", "err", err)
 			}
 			continue
 		}
 
-		// re-enqueue with backoff (simple sleep here)
 		time.Sleep(backoff0 * time.Duration(attempt+1))
 		m.Headers = upsertHeader(m.Headers, hdrAttempts, []byte(strconv.Itoa(attempt+1)))
 		if err := w.WriteMessages(ctx, kafka.Message{Key: m.Key, Value: m.Value, Headers: m.Headers}); err != nil {
@@ -102,12 +101,6 @@ func upsertHeader(hs []kafka.Header, k string, v []byte) []kafka.Header {
 		}
 	}
 	return append(hs, kafka.Header{Key: k, Value: v})
-}
-
-type itemEvent struct {
-	Type string          `json:"type"`
-	Item json.RawMessage `json:"item,omitempty"`
-	ID   int64           `json:"id,omitempty"`
 }
 
 func insertAudit(ctx context.Context, db DBExec, payload []byte) error {

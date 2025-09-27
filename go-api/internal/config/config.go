@@ -37,13 +37,19 @@ func getenvInt(key string, def int) int {
 	return def
 }
 
-func fromEnvOrFile(key string) string {
+func fromEnvOrFile(key, def string) string {
 	if p := os.Getenv(key + "_FILE"); p != "" {
 		if b, err := os.ReadFile(p); err == nil {
-			return strings.TrimSpace(string(b))
+			v := strings.TrimSpace(string(b))
+			if v != "" {
+				return v
+			}
 		}
 	}
-	return os.Getenv(key)
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
 }
 
 func FromEnv() Config {
@@ -55,11 +61,11 @@ func FromEnv() Config {
 		RateLimitBurst:    getenvInt("RATE_LIMIT_BURST", 10),
 		SentryDSN:         os.Getenv("SENTRY_DSN"),
 		SentryEnv:         getenv("SENTRY_ENV", "dev"),
-		JWTAccessSecret:   getenv("JWT_ACCESS_SECRET", "change-this"),
-		JWTRefreshSecret:  getenv("JWT_REFRESH_SECRET", "change-this-too"),
+		JWTAccessSecret:   fromEnvOrFile("JWT_ACCESS_SECRET", "change-this"),
+		JWTRefreshSecret:  fromEnvOrFile("JWT_REFRESH_SECRET", "change-this-too"),
 		JWTAccessTTLMin:   getenvInt("JWT_ACCESS_TTL_MIN", 15),
 		JWTRefreshTTLDays: getenvInt("JWT_REFRESH_TTL_DAYS", 7),
 		RedisAddr:         getenv("REDIS_ADDR", "redis:6379"),
-		RedisPassword:     os.Getenv("REDIS_PASSWORD"),
+		RedisPassword:     fromEnvOrFile("REDIS_PASSWORD", ""),
 	}
 }

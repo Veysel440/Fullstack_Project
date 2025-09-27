@@ -13,7 +13,6 @@ func TestHandle_OK(t *testing.T) {
 	defer db.Close()
 
 	c := &Consumer{db: db}
-
 	payload := []byte(`{"type":"item.created","item":{"id":1,"name":"X"}}`)
 
 	mock.ExpectExec(regexp.QuoteMeta(

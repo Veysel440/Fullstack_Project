@@ -71,6 +71,7 @@ func (s *Store) RevokeJTI(ctx context.Context, jti string, ttl time.Duration) er
 	}
 	return s.R.Set(ctx, "rev:"+jti, "1", ttl).Err()
 }
+
 func (s *Store) IsRevoked(ctx context.Context, jti string) (bool, error) {
 	if s == nil {
 		return false, nil
