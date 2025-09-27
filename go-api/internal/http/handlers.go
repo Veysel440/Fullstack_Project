@@ -46,7 +46,6 @@ func (h *Handlers) ListItems(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	if size < 1 {
 		size = 20
 	}
-
 	writeJSON(w, stdhttp.StatusOK, PagedItems{
 		Items: items, Page: page, Size: size, Total: total,
 	})

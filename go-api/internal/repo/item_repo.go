@@ -36,46 +36,38 @@ func normalizeSort(in string) (col, dir string) {
 }
 
 func (r *ItemRepo) ListPagedSortedWithTotal(ctx context.Context, limit, offset int, sort, q string) ([]domain.Item, int64, error) {
-	col, dir := normalizeSort(sort)
-
-	var where string
-	var args []any
-	argN := 0
-	if q != "" {
-		argN++
-		where = fmt.Sprintf("WHERE name ILIKE $%d", argN)
-		args = append(args, "%"+q+"%")
+	col, dir := "id", "DESC"
+	if sort != "" {
+		parts := strings.Split(sort, ",")
+		if len(parts) > 0 {
+			switch parts[0] {
+			case "id", "name", "price", "created_at":
+				col = parts[0]
+			}
+		}
+		if len(parts) > 1 && strings.ToLower(parts[1]) == "asc" {
+			dir = "ASC"
+		}
 	}
-
-	var total int64
-	countSQL := "SELECT COUNT(*) FROM app.items " + where
-	if err := r.DB.QueryRowContext(ctx, countSQL, args...).Scan(&total); err != nil {
-		return nil, 0, err
+	where, args := "1=1", []any{}
+	if strings.TrimSpace(q) != "" {
+		where = "name ILIKE $1"
+		args = append(args, "%"+strings.TrimSpace(q)+"%")
 	}
-
-	argN++
-	args = append(args, limit)
-	limitPos := argN
-
-	argN++
-	args = append(args, offset)
-	offsetPos := argN
-
-	listSQL := fmt.Sprintf(`
-		SELECT id,name,price,created_at
-		  FROM app.items
-		  %s
+	query := fmt.Sprintf(
+		`SELECT id,name,price,created_at
+		   FROM app.items
+		  WHERE %s
 		  ORDER BY %s %s
-		  LIMIT $%d OFFSET $%d
-	`, where, col, dir, limitPos, offsetPos)
+		  LIMIT %d OFFSET %d`, where, col, dir, limit, offset)
 
-	rows, err := r.DB.QueryContext(ctx, listSQL, args...)
+	rows, err := r.DB.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer rows.Close()
 
-	var out []domain.Item
+	out := make([]domain.Item, 0, limit)
 	for rows.Next() {
 		var it domain.Item
 		if err := rows.Scan(&it.ID, &it.Name, &it.Price, &it.CreatedAt); err != nil {
@@ -83,7 +75,19 @@ func (r *ItemRepo) ListPagedSortedWithTotal(ctx context.Context, limit, offset i
 		}
 		out = append(out, it)
 	}
-	return out, total, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+
+	var total int64
+	countSQL := "SELECT COUNT(*) FROM app.items"
+	if where != "1=1" {
+		countSQL += " WHERE " + where
+	}
+	if err := r.DB.QueryRowContext(ctx, countSQL, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	return out, total, nil
 }
 
 func (r *ItemRepo) List(ctx context.Context) ([]domain.Item, error) {
