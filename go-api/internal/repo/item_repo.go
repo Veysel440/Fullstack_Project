@@ -36,24 +36,15 @@ func normalizeSort(in string) (col, dir string) {
 }
 
 func (r *ItemRepo) ListPagedSortedWithTotal(ctx context.Context, limit, offset int, sort, q string) ([]domain.Item, int64, error) {
-	col, dir := "id", "DESC"
-	if sort != "" {
-		parts := strings.Split(sort, ",")
-		if len(parts) > 0 {
-			switch parts[0] {
-			case "id", "name", "price", "created_at":
-				col = parts[0]
-			}
-		}
-		if len(parts) > 1 && strings.ToLower(parts[1]) == "asc" {
-			dir = "ASC"
-		}
-	}
-	where, args := "1=1", []any{}
-	if strings.TrimSpace(q) != "" {
+	col, dir := normalizeSort(sort)
+
+	where := "1=1"
+	args := []any{}
+	if s := strings.TrimSpace(q); s != "" {
 		where = "name ILIKE $1"
-		args = append(args, "%"+strings.TrimSpace(q)+"%")
+		args = append(args, "%"+s+"%")
 	}
+
 	query := fmt.Sprintf(
 		`SELECT id,name,price,created_at
 		   FROM app.items
@@ -79,11 +70,11 @@ func (r *ItemRepo) ListPagedSortedWithTotal(ctx context.Context, limit, offset i
 		return nil, 0, err
 	}
 
-	var total int64
 	countSQL := "SELECT COUNT(*) FROM app.items"
 	if where != "1=1" {
 		countSQL += " WHERE " + where
 	}
+	var total int64
 	if err := r.DB.QueryRowContext(ctx, countSQL, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
@@ -126,9 +117,8 @@ func (r *ItemRepo) Create(ctx context.Context, in domain.CreateItemDTO) (domain.
 	const q = `INSERT INTO app.items(name,price) VALUES($1,$2)
 	           RETURNING id,name,price,created_at`
 	var it domain.Item
-	err := r.DB.QueryRowContext(ctx, q, in.Name, in.Price).
-		Scan(&it.ID, &it.Name, &it.Price, &it.CreatedAt)
-	if err != nil {
+	if err := r.DB.QueryRowContext(ctx, q, in.Name, in.Price).
+		Scan(&it.ID, &it.Name, &it.Price, &it.CreatedAt); err != nil {
 		return domain.Item{}, err
 	}
 	return it, nil

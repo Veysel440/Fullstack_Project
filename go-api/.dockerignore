@@ -1,4 +1,22 @@
+# VCS / IDE
 .git
+.gitignore
 .vscode
 .idea
+
+# Go build/out
+/out
+/bin
+/tmp
+*.test
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docs
 **/*.md
+
+# Web workspace accidentally copied
+webapp/node_modules
+webapp/dist
