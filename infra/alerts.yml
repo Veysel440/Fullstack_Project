@@ -12,7 +12,7 @@ groups:
 
       - alert: HighP95Latency
         expr: |
-          histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 0.8
+          histogram_quantile(0.95, sum by (le) (rate(http_duration_seconds_bucket[5m]))) > 0.8
         for: 10m
         labels: { severity: warning }
         annotations:
@@ -20,15 +20,15 @@ groups:
 
       - alert: Low304Ratio
         expr: |
-          (sum(rate(http_requests_total{status="304"}[10m])) /
-           sum(rate(http_requests_total[10m]))) < 0.02
+          (sum(rate(http_cache_304_total[10m])) /
+           sum(rate(http_requests_total{status=~"2..|3.."}[10m]))) < 0.02
         for: 20m
         labels: { severity: info }
         annotations:
           summary: "304 ratio too low (check cache)"
 
       - alert: RateLimitDropsSpike
-        expr: increase(rate_limit_drops_total[5m]) > 50
+        expr: increase(ratelimit_dropped_total[5m]) > 50
         for: 5m
         labels: { severity: warning }
         annotations:

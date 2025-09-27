@@ -9,8 +9,7 @@
         "type": "query",
         "datasource": "Prometheus",
         "refresh": 2,
-        "query": "label_values(up, job)",
-        "includeAll": false
+        "query": "label_values(up, job)"
       }
     ]
   },
@@ -20,10 +19,7 @@
       "title": "Latency P95 (ms)",
       "datasource": "Prometheus",
       "targets": [
-        {
-          "expr": "1000 * histogram_quantile(0.95, sum by (le) (rate(api_http_request_duration_seconds_bucket{job=~\"$job\"}[5m])))",
-          "legendFormat": "p95"
-        }
+        { "expr": "1000 * histogram_quantile(0.95, sum by (le) (rate(http_duration_seconds_bucket{job=~\"$job\"}[5m])))", "legendFormat": "p95" }
       ],
       "id": 1
     },
@@ -32,10 +28,7 @@
       "title": "Error rate (5xx / all)",
       "datasource": "Prometheus",
       "targets": [
-        {
-          "expr": "sum(rate(api_http_requests_total{job=~\"$job\",code=~\"5..\"}[5m])) / sum(rate(api_http_requests_total{job=~\"$job\"}[5m]))",
-          "legendFormat": "error_rate"
-        }
+        { "expr": "sum(rate(http_requests_total{job=~\"$job\",status=~\"5..\"}[5m])) / sum(rate(http_requests_total{job=~\"$job\"}[5m]))", "legendFormat": "error_rate" }
       ],
       "id": 2
     },
@@ -44,10 +37,7 @@
       "title": "304 hit ratio",
       "datasource": "Prometheus",
       "targets": [
-        {
-          "expr": "sum(rate(api_http_requests_total{job=~\"$job\",code=\"304\"}[5m])) / sum(rate(api_http_requests_total{job=~\"$job\",code=~\"2..|3..\"}[5m]))",
-          "legendFormat": "304_ratio"
-        }
+        { "expr": "sum(rate(http_cache_304_total{job=~\"$job\"}[5m])) / sum(rate(http_requests_total{job=~\"$job\",status=~\"2..|3..\"}[5m]))", "legendFormat": "304_ratio" }
       ],
       "id": 3
     },
@@ -56,14 +46,11 @@
       "title": "Rate-limit drops",
       "datasource": "Prometheus",
       "targets": [
-        {
-          "expr": "sum(rate(api_http_ratelimit_drops_total{job=~\"$job\"}[5m]))",
-          "legendFormat": "drops/s"
-        }
+        { "expr": "sum(rate(ratelimit_dropped_total{job=~\"$job\"}[5m]))", "legendFormat": "drops/s" }
       ],
       "id": 4
     }
   ],
   "schemaVersion": 36,
-  "version": 1
+  "version": 2
 }

@@ -1,3 +1,5 @@
+version: "3.9"
+
 services:
   postgres:
     image: postgres:17-alpine
@@ -19,57 +21,9 @@ services:
       retries: 30
     restart: unless-stopped
 
-  api:
-    build:
-      context: "${GOAPI_PATH}"
-      dockerfile: Dockerfile
-    env_file: "${GOAPI_PATH}/.env"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    read_only: true
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,size=64m
-    security_opt:
-      - no-new-privileges:true
-    cap_drop: ["ALL"]
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-          cpus: "0.50"
-    restart: unless-stopped
-
-  web:
-    build:
-      context: "${WEBAPP_PATH}"
-      dockerfile: Dockerfile
-      args:
-        VITE_API_URL: /api
-    depends_on:
-      api:
-        condition: service_started
-    ports: ["3001:80"]
-    read_only: true
-    tmpfs:
-      - /var/cache/nginx:rw,noexec,nosuid,size=64m
-      - /var/run:rw,noexec,nosuid,size=16m
-      - /tmp:rw,noexec,nosuid,size=32m
-    security_opt:
-      - no-new-privileges:true
-    cap_drop: ["ALL"]
-    deploy:
-      resources:
-        limits:
-          memory: 128M
-          cpus: "0.50"
-    restart: unless-stopped
-
   redis:
     image: redis:7-alpine
     command: ["redis-server","--appendonly","yes","--requirepass","${REDIS_PASSWORD:-change-me}"]
-    environment:
-      REDIS_PASSWORD: "${REDIS_PASSWORD:-change-me}"
     restart: unless-stopped
 
   kafka:
@@ -87,6 +41,105 @@ services:
     ports: ["9092:9092"]
     restart: unless-stopped
 
+  api:
+    build:
+      context: ${GOAPI_PATH:-../go-api}
+      dockerfile: Dockerfile
+    env_file: ${GOAPI_PATH:-../go-api}/.env
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka: { condition: service_started }
+      redis: { condition: service_started }
+    ports: ["8080:8080"]
+    read_only: true
+    tmpfs: [ "/tmp:rw,noexec,nosuid,size=64m" ]
+    security_opt: [ "no-new-privileges:true" ]
+    cap_drop: [ "ALL" ]
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.50"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ${WEBAPP_PATH:-../webapp}
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: /api
+    depends_on:
+      api: { condition: service_started }
+    ports: ["3001:80"]
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:rw,noexec,nosuid,size=64m
+      - /var/run:rw,noexec,nosuid,size=16m
+      - /tmp:rw,noexec,nosuid,size=32m
+    security_opt: [ "no-new-privileges:true" ]
+    cap_drop: [ "ALL" ]
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.50"
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    command: [ "--config.file=/etc/prometheus/prometheus.yml","--storage.tsdb.retention.time=3d" ]
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports: [ "9090:9090" ]
+    depends_on:
+      api: { condition: service_started }
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    ports: [ "3000:3000" ]
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      prometheus: { condition: service_started }
+    restart: unless-stopped
+
+  auditor:
+    build:
+      context: ${GOAPI_PATH:-../go-api}
+      dockerfile: Dockerfile
+    command: [ "/auditor" ]
+    env_file: ${GOAPI_PATH:-../go-api}/.env
+    environment:
+      KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka:9092}
+      KAFKA_ITEMS_TOPIC: ${KAFKA_ITEMS_TOPIC:-item}
+      KAFKA_DLQ_TOPIC: ${KAFKA_DLQ_TOPIC:-item-dlq}
+      KAFKA_GROUP: ${KAFKA_GROUP:-items-auditor}
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka: { condition: service_started }
+    restart: unless-stopped
+
+  auditor-retry:
+    build:
+      context: ${GOAPI_PATH:-../go-api}
+      dockerfile: Dockerfile
+    command: [ "/auditor-retry" ]
+    env_file: ${GOAPI_PATH:-../go-api}/.env
+    environment:
+      KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka:9092}
+      KAFKA_DLQ_TOPIC: ${KAFKA_DLQ_TOPIC:-item-dlq}
+      KAFKA_RETRY_GROUP: ${KAFKA_RETRY_GROUP:-items-auditor-retry}
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka: { condition: service_started }
+    restart: unless-stopped
+
+  # (opsiyonel ELK)
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
     environment:
@@ -94,8 +147,7 @@ services:
       - xpack.security.enabled=false
       - ES_JAVA_OPTS=-Xms512m -Xmx512m
     ports: ["9200:9200"]
-    volumes:
-      - es-data:/usr/share/elasticsearch/data
+    volumes: [ "es-data:/usr/share/elasticsearch/data" ]
     restart: unless-stopped
 
   kibana:
@@ -103,7 +155,7 @@ services:
     environment:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
     ports: ["5601:5601"]
-    depends_on: [elasticsearch]
+    depends_on: [ elasticsearch ]
     restart: unless-stopped
 
   logstash:
@@ -111,7 +163,7 @@ services:
     volumes:
       - ./logging/logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
     ports: ["5044:5044"]
-    depends_on: [elasticsearch]
+    depends_on: [ elasticsearch ]
     restart: unless-stopped
 
   filebeat:
@@ -121,57 +173,8 @@ services:
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./logging/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
-    depends_on: [logstash]
+    depends_on: [ logstash ]
     restart: unless-stopped
-
-    prometheus:
-      image: prom/prometheus:v2.54.1
-      command: [ "--config.file=/etc/prometheus/prometheus.yml","--storage.tsdb.retention.time=3d" ]
-      volumes:
-        - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      ports: [ "9090:9090" ]
-      restart: unless-stopped
-      depends_on: { api: { condition: service_started } }
-
-      grafana:
-        image: grafana/grafana:11.2.0
-        environment:
-          GF_SECURITY_ADMIN_USER: admin
-          GF_SECURITY_ADMIN_PASSWORD: admin
-        ports: [ "3000:3000" ]
-        volumes:
-          - ./grafana/provisioning:/etc/grafana/provisioning:ro
-          - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
-        depends_on: { prometheus: { condition: service_started } }
-        restart: unless-stopped
-
-      auditor:
-        build: { context: ${ GOAPI_PATH }, dockerfile: Dockerfile }
-        command: [ "/auditor" ]
-        environment:
-          KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka:9092}
-          KAFKA_ITEMS_TOPIC: ${KAFKA_ITEMS_TOPIC:-item}
-          KAFKA_GROUP: ${KAFKA_GROUP:-items-auditor}
-          KAFKA_DLQ_TOPIC: ${KAFKA_DLQ_TOPIC:-item-dlq}
-        
-        env_file: ${GOAPI_PATH}/.env
-        depends_on:
-          postgres: { condition: service_healthy }
-          kafka: { condition: service_started }
-        restart: unless-stopped
-
-      auditor-retry:
-        build: { context: ${ GOAPI_PATH }, dockerfile: Dockerfile }
-        command: [ "/auditor-retry" ]
-        environment:
-          KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka:9092}
-          KAFKA_DLQ_TOPIC: ${KAFKA_DLQ_TOPIC:-item-dlq}
-          KAFKA_RETRY_GROUP: ${KAFKA_RETRY_GROUP:-items-auditor-retry}
-        env_file: ${GOAPI_PATH}/.env
-        depends_on:
-          kafka: { condition: service_started }
-          postgres: { condition: service_healthy }
-        restart: unless-stopped
 
 volumes:
   pg-data:
