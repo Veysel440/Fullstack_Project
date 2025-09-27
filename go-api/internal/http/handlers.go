@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"crypto/sha1"
 	"encoding/json"
 	"errors"
@@ -12,15 +13,12 @@ import (
 
 	"fullstack-oracle/go-api/internal/domain"
 	"fullstack-oracle/go-api/internal/repo"
-	"fullstack-oracle/go-api/internal/service"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/validator/v10"
 )
 
-type Handlers struct{ S *service.ItemService }
-
-var v = validator.New()
+type Handlers struct{ S ItemPort }
 
 type ItemPort interface {
 	List(ctx context.Context, page, size int, sort, q string) ([]domain.Item, int64, error)
@@ -32,9 +30,10 @@ type ItemPort interface {
 	Update(ctx context.Context, id int64, in domain.CreateItemDTO) (domain.Item, error)
 	Delete(ctx context.Context, id int64) error
 
-	// bulk
 	DeleteBulk(ctx context.Context, ids []int64) error
 }
+
+var v = validator.New()
 
 type PagedItems struct {
 	Items []domain.Item `json:"items"`
@@ -165,18 +164,6 @@ func (h *Handlers) DeleteItem(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	w.WriteHeader(stdhttp.StatusNoContent)
 }
 
-func parseID(v string) (int64, error) { return strconv.ParseInt(v, 10, 64) }
-
-func toFields(err error) map[string]string {
-	out := map[string]string{}
-	if ve, ok := err.(validator.ValidationErrors); ok {
-		for _, fe := range ve {
-			out[strings.ToLower(fe.Field())] = fe.Tag()
-		}
-	}
-	return out
-}
-
 func (h *Handlers) BulkDeleteItems(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	var ids []int64
 	var probe any
@@ -187,8 +174,7 @@ func (h *Handlers) BulkDeleteItems(w stdhttp.ResponseWriter, r *stdhttp.Request)
 	switch t := probe.(type) {
 	case []any:
 		for _, v := range t {
-			switch n := v.(type) {
-			case float64:
+			if n, ok := v.(float64); ok {
 				ids = append(ids, int64(n))
 			}
 		}
@@ -216,4 +202,16 @@ func (h *Handlers) BulkDeleteItems(w stdhttp.ResponseWriter, r *stdhttp.Request)
 		return
 	}
 	w.WriteHeader(stdhttp.StatusNoContent)
+}
+
+func parseID(v string) (int64, error) { return strconv.ParseInt(v, 10, 64) }
+
+func toFields(err error) map[string]string {
+	out := map[string]string{}
+	if ve, ok := err.(validator.ValidationErrors); ok {
+		for _, fe := range ve {
+			out[strings.ToLower(fe.Field())] = fe.Tag()
+		}
+	}
+	return out
 }
