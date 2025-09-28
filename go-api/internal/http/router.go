@@ -46,6 +46,7 @@ func Router(
 		r.Route("/auth", func(r chi.Router) {
 			r.Post("/login", ah.Login)
 			r.Post("/refresh", ah.Refresh)
+			r.Post("/register", ah.Register)
 		})
 	}
 

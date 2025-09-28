@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"fullstack-oracle/go-api/internal/repo"
 	stdhttp "net/http"
 
 	"fullstack-oracle/go-api/internal/config"
@@ -26,6 +27,27 @@ func (a *AuthHandlers) validator() *validator.Validate {
 		a.Val = validator.New()
 	}
 	return a.Val
+}
+
+func (a *AuthHandlers) Register(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	var in loginReq
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeValidation(w, r, map[string]string{"body": "invalid json"})
+		return
+	}
+	if err := a.Val.Struct(in); err != nil {
+		writeValidation(w, r, map[string]string{"email": "required,email", "password": "min=6"})
+		return
+	}
+	if err := a.S.Register(r.Context(), in.Email, in.Password); err != nil {
+		if err == repo.ErrConflict {
+			writeError(w, r, 409, "email_exists", "email already registered")
+			return
+		}
+		writeError(w, r, 500, "register_failed", err.Error())
+		return
+	}
+	writeJSON(w, stdhttp.StatusCreated, map[string]any{"ok": true})
 }
 
 func (a *AuthHandlers) Login(w stdhttp.ResponseWriter, r *stdhttp.Request) {

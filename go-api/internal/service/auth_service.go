@@ -31,6 +31,15 @@ type Tokens struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
+func (s *AuthService) Register(ctx context.Context, email, pass string) error {
+	hash, err := bcrypt.GenerateFromPassword([]byte(pass), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	_, err = s.r.Create(ctx, email, string(hash), "user")
+	return err
+}
+
 func (s *AuthService) Login(ctx context.Context, email, pass string) (Tokens, error) {
 	u, hash, err := s.r.FindByEmail(ctx, email)
 	if err != nil {
